@@ -1,6 +1,6 @@
 import json
 import pytest
-from tests.conftest import make_mock_client, load_jsonl
+from tests.helpers import make_mock_client, load_jsonl
 from autoqa.components.rtm_review_agent_medtech.nodes import DecomposerNode
 from autoqa.components.rtm_review_agent_medtech.core import DecomposedRequirement, Requirement
 

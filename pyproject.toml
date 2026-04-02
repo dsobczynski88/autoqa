@@ -39,6 +39,7 @@ markers = [
     "integration: marks tests that make real LLM API calls (deselect with -m 'not integration')",
 ]
 testpaths = ["tests"]
+python_classes = []
 
 # Declaring a build system allows uv to install your project editably during sync.
 # This does not publish anything by itself; it just makes local imports work cleanly.

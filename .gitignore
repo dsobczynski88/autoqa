@@ -8,6 +8,9 @@ output/
 data/*
 !/data/.gitkeep
 
+# logs
+logs/*
+!/logs/.gitkeep
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

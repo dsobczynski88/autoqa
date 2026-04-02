@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader, Template
 import json
+import openpyxl
 import autoqa
 from autoqa.prj_logger import get_logs
-
 
 def get_current_date_time():
     # Get the current date and time
@@ -19,9 +19,9 @@ def get_current_date_time():
     formatted_time = now.strftime("%Y-%m-%d-%H-%M-%S")
     return formatted_time  
 
-def make_output_directory(file_locations, output_folder_name):
+def make_output_directory(fold_path):
     run_name = f"run-{get_current_date_time()}"
-    output_directory = f"{file_locations[output_folder_name]}/{run_name}"
+    output_directory = f"{fold_path}/{run_name}"
     Path(output_directory).mkdir(parents=True, exist_ok=True)
     return output_directory
 
@@ -44,10 +44,7 @@ def save_graph_png(graph, output_path: Union[str, Path]) -> None:
     print(f"Graph diagram saved to: {output_path}")
 
 
-# ============================================================================
 # Prompt Template Loading (Jinja2)
-# ============================================================================
-
 # Get the prompts directory path relative to this file
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -109,7 +106,7 @@ def load_json(json_file: str) -> Dict[str, Any]:
             data = json.load(f)
     except json.JSONDecodeError as e:
         raise SystemExit(
-            f"Failed to parse JSON from '{input_path}'.\n" \
+            f"Failed to parse JSON from '{json_file}'.\n" \
             f"Details: {e}"
         )
     if not isinstance(data, dict):
@@ -180,7 +177,7 @@ def json_to_dataframe(json_file, json_id="requirements", output_path="json_outpu
         for sheet_name, df in frames.items():
             safe_name = sheet_name[:31]
             df.to_excel(writer, index=False, sheet_name=safe_name)
-    return df
+    return openpyxl.load_workbook(output_path)
 
 def _extract_json_from_markdown(text: str) -> str:
     """Extract JSON from markdown code fences."""

@@ -15,13 +15,18 @@ Class hierarchy:
 - CoverageEvaluatorNode: extends BaseLLMNode directly (N sequential LLM calls, no
   _build_payload/_format_response contract)
 """
-import ast
 import json
 import re
 from typing import Optional, List, Dict, Any
 from abc import ABC, abstractmethod
 from autoqa.components.clients import RateLimitOpenAIClient
 from autoqa.utils import render_prompt
+from autoqa.prj_logger import ProjectLogger
+from autoqa.core.config import settings
+
+project_logger = ProjectLogger(name="logger.nodes", log_file=settings.log_file_path)
+project_logger.config()
+logger = project_logger.get_logger()
 from .core import (
     RTMReviewState,
     Requirement,
@@ -73,14 +78,15 @@ class BaseLLMNode(ABC):
         for choice in result.choices:
             try:
                 content = choice.message.content
+                logger.debug("%s: raw LLM response — %s", node_name, content)
                 extracted_json = BaseLLMNode._extract_json_from_markdown(content)
                 try:
                     return response_model.model_validate_json(extracted_json)
                 except Exception:
-                    py_obj = ast.literal_eval(extracted_json)
+                    py_obj = json.loads(extracted_json)
                     return response_model.model_validate(py_obj)
             except Exception as e:
-                print(f"{node_name}: parse failed for choice — {e}")
+                logger.warning("%s: parse failed for choice — %s", node_name, e)
                 continue
         return None
 
@@ -110,13 +116,13 @@ class StandardLLMNode(BaseLLMNode, ABC):
 
     async def __call__(self, state: Dict) -> Dict:
         if not self._validate_state(state):
-            print(f"{self.__class__.__name__}: skipping — validation failed")
+            logger.debug("%s: skipping — validation failed", self.__class__.__name__)
             return self._get_skip_response()
 
         try:
             payload = self._build_payload(state)
         except Exception as e:
-            print(f"{self.__class__.__name__}: payload building failed — {e}")
+            logger.warning("%s: payload building failed — %s", self.__class__.__name__, e)
             return self._get_skip_response()
 
         messages = [
@@ -132,7 +138,7 @@ class StandardLLMNode(BaseLLMNode, ABC):
         parsed = self._parse_llm_response(result, self.response_model, self.__class__.__name__)
 
         if parsed is None:
-            print(f"{self.__class__.__name__}: all choices failed to parse, returning skip response")
+            logger.warning("%s: all choices failed to parse, returning skip response", self.__class__.__name__)
             return self._get_skip_response()
 
         return self._format_response(parsed)
@@ -197,7 +203,7 @@ class CoverageEvaluatorNode(BaseLLMNode):
 
     async def __call__(self, state: Dict) -> Dict:
         if not self._validate_state(state):
-            print(f"{self.__class__.__name__}: skipping — validation failed")
+            logger.debug("%s: skipping — validation failed", self.__class__.__name__)
             return {"coverage_analysis": []}
 
         requirement = state["requirement"]
@@ -265,7 +271,7 @@ def make_decomposer_node(client: RateLimitOpenAIClient, model: str, **template_v
     Returns:
         DecomposerNode: Configured decomposer node
     """
-    system_prompt = render_prompt('decomposer.jinja2', **template_vars)
+    system_prompt = render_prompt('decomposer-v2.jinja2', **template_vars)
     return DecomposerNode(
         client=client,
         model=model,
@@ -286,7 +292,7 @@ def make_summarizer_node(client: RateLimitOpenAIClient, model: str, **template_v
     Returns:
         SummaryNode: Configured summarizer node
     """
-    system_prompt = render_prompt('summarizer.jinja2', **template_vars)
+    system_prompt = render_prompt('summarizer-v2.jinja2', **template_vars)
     return SummaryNode(
         client=client,
         model=model,
@@ -335,7 +341,7 @@ def make_coverage_evaluator(client: RateLimitOpenAIClient, model: str, **templat
         CoverageEvaluatorNode: Configured coverage evaluator node that processes
                                        each spec individually and returns CoverageEvaluator
     """
-    system_prompt = render_prompt('coverage_evaluator-v3.jinja2', **template_vars)
+    system_prompt = render_prompt('coverage_evaluator-v4.jinja2', **template_vars)
     return CoverageEvaluatorNode(
         client=client,
         model=model,
