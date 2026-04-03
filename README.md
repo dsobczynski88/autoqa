@@ -2,9 +2,47 @@
 
 ## Background
 
-AutoQA is a software quality tool designed to assist QA engineers and regulatory teams in reviewing Requirements Traceability Matrix (RTM) artifacts for medical device software. Medical device software developed under FDA guidance and the IEC 62304 lifecycle standard must demonstrate that every software requirement is adequately verified by a corresponding test case. In practice, this is a labor-intensive review process prone to coverage gaps, inconsistent rationale, and missed edge cases. AutoQA automates the analytical layer of that review by accepting a software requirement alongside its associated test suite and producing a structured coverage verdict (scored 0 to 5 per atomic specification) complete with cited test cases and written rationale.
+AutoQA is a software quality tool designed to assist QA engineers and regulatory teams in reviewing Requirements Traceability Matrix (RTM) artifacts for medical device software. Medical device software developed under FDA guidance and the IEC 62304 lifecycle standard must demonstrate that every software requirement is adequately verified by a corresponding test case. In practice, this is a labor-intensive review process prone to coverage gaps, inconsistent rationale, and missed edge cases. AutoQA automates the analytical layer of that review by accepting a software requirement alongside its associated test suite and producing a structured coverage verdict (scored 0 to 5 per atomic specification) complete with cited test cases, written rationale, and a synthesized holistic assessment.
 
-Under the hood, AutoQA uses a four-node LangGraph pipeline to break a requirement into its testable atomic specifications (functional, boundary, safety, performance), semantically summarize each test case in the suite, generate adversarial gap-filling tests for underserved specifications, and finally evaluate per-spec coverage against the full test suite. The result is a machine-generated coverage analysis that surfaces gaps, flags weak coverage, and provides a transparent audit trail — the kind of traceability evidence that supports FDA submissions and IEC 62304 compliance reviews.
+---
+
+## Pipeline Architecture
+
+AutoQA uses a five-node LangGraph pipeline. Nodes run with maximum parallelism: the decomposer and summarizer execute concurrently from `START`, and each decomposed specification is evaluated by a dedicated evaluator node running in parallel via LangGraph's `Send` API.
+
+```
+START
+  ↓
+┌──────────────────────────────────────┐
+│ DECOMPOSER       SUMMARIZER          │  ← parallel
+│ Breaks requirement into atomic specs │  ← structures raw test cases
+└──────────────────────────────────────┘
+  ↓ (fan-in)
+┌──────────────────────────────────────┐
+│ COVERAGE_ROUTER  (sync point)        │
+└──────────────────────────────────────┘
+  ↓ Send × N (one per decomposed spec)
+┌──────────────────────────────────────┐
+│ SPEC_EVALUATOR × N  (parallel)       │  ← one LLM call per spec
+└──────────────────────────────────────┘
+  ↓ (fan-in: operator.add accumulates coverage_analysis)
+┌──────────────────────────────────────┐
+│ SYNTHESIZER  (MoA-inspired)          │  ← holistic assessment across all specs
+└──────────────────────────────────────┘
+  ↓
+END
+```
+
+Each pipeline run also writes a Mermaid graph diagram (`graph.png`) to the run's log folder alongside `autoqa.log`.
+
+### Output fields
+
+| Field | Description |
+|-------|-------------|
+| `decomposed_requirement` | Requirement broken into typed atomic specs (functional, boundary, negative, etc.) |
+| `test_suite` | Structured summary of each test case — objective, protocol, acceptance criteria |
+| `coverage_analysis` | Per-spec verdict: `covered_exists`, `covered_extent` (0–5), cited test case IDs, and rationale |
+| `synthesized_assessment` | MoA-synthesized view across functional, negative, and boundary/edge perspectives with gap recommendations |
 
 ---
 
@@ -14,19 +52,19 @@ Under the hood, AutoQA uses a four-node LangGraph pipeline to break a requiremen
 
 - Python 3.12+
 - [`uv`](https://docs.astral.sh/uv/) package manager
-- An OpenAI API key (Ollama and AWS Bedrock are also supported as alternative backends)
+- An OpenAI API key
 
 ### Installation
 
 ```bash
 git clone <repo-url>
-cd autoqa-feature-initial-prototype
+cd autoqa
 uv sync --frozen
 ```
 
 ### Environment Setup
 
-Create a `.env` file in the repo root and populate your credentials:
+Create a `.env` file in the repo root:
 
 ```env
 # Required
@@ -48,9 +86,24 @@ uv run pytest tests/unit/ -v
 
 # Integration tests (requires a live OPENAI_API_KEY in .env)
 uv run pytest -m integration -v
+
+# Parameterized batch run — 10 HC requirement records, records inputs.jsonl + outputs.jsonl
+uv run pytest tests/integration/test_pipeline.py::test_pipeline_parametrized -m integration -s
 ```
 
-The unit test suite covers all four pipeline nodes with both plain-JSON and markdown-wrapped LLM response variants. JSONL fixture files in `tests/fixtures/` make it easy to add new test scenarios without changing any Python — append a line to the relevant file and it is automatically picked up by `@pytest.mark.parametrize`.
+The unit test suite covers all pipeline nodes with both plain-JSON and markdown-wrapped LLM response variants. JSONL fixture files in `tests/fixtures/` make it easy to add new test scenarios — append a line to the relevant file and it is automatically picked up by `@pytest.mark.parametrize`.
+
+The integration test suite includes a session-scoped `jsonl_recorders` fixture that writes `inputs.jsonl` and `outputs.jsonl` to the active `logs/run-.../` folder, enabling offline analysis of model outputs across a batch of requirements.
+
+All run artifacts are written to a timestamped `logs/run-<datetime>/` directory:
+
+| File | Contents |
+|------|----------|
+| `autoqa.log` | Structured application logs |
+| `graph.png` | Mermaid diagram of the compiled LangGraph |
+| `pipeline_state.json` | Full serialized state from a single pipeline run |
+| `inputs.jsonl` | Input records fed to the parametrized test |
+| `outputs.jsonl` | Serialized pipeline state for each parametrized run |
 
 ---
 
@@ -116,7 +169,12 @@ curl -X POST http://localhost:8000/api/v1/review \
     }
   ],
   "decomposed_requirement": {},
-  "test_suite": {}
+  "test_suite": {},
+  "synthesized_assessment": {
+    "requirement": {"req_id": "SRS-042", "text": "..."},
+    "coverage_assessment": "Functional coverage is present via TC-101 and TC-102. Boundary coverage is absent — no test exercises the exact threshold value of 180 mg/dL. Negative coverage is partially addressed by TC-102.",
+    "comments": "Add a boundary test at exactly 180 mg/dL. Add a test verifying alarm latency is within the 5-second window under load conditions."
+  }
 }
 ```
 
@@ -155,6 +213,12 @@ async def main():
         print(f"[{spec['spec_id']}] Score: {spec['covered_extent']}/5")
         print(f"  Covered by: {spec['covered_by_test_cases']}")
         print(f"  Rationale:  {spec['coverage_rationale']}\n")
+
+    assessment = result.get("synthesized_assessment", {})
+    print("Synthesized Assessment:")
+    print(assessment.get("coverage_assessment"))
+    print("\nRecommendations:")
+    print(assessment.get("comments"))
 
 asyncio.run(main())
 ```
