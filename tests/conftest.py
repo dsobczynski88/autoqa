@@ -3,8 +3,9 @@ import os
 from pathlib import Path
 import pytest
 from dotenv import load_dotenv
-
 load_dotenv()
+from autoqa.core.config import settings
+
 from autoqa.components.clients import RateLimitOpenAIClient
 from autoqa.components.rtm_review_agent_medtech.core import (
     Requirement,
@@ -14,8 +15,6 @@ from autoqa.components.rtm_review_agent_medtech.core import (
     SummarizedTestCase,
     TestSuite,
     EvaluatedSpec,
-    AITestSuite,
-    AISummarizedTestCase,
 )
 
 @pytest.fixture
@@ -92,6 +91,27 @@ def sample_test_suite(sample_requirement, sample_test_cases):
         test_cases=sample_test_cases,
         summary=summaries,
     )
+
+
+@pytest.fixture(scope="session")
+def jsonl_recorders():
+    """Session-scoped fixture that clears inputs.jsonl / outputs.jsonl once at session
+    start, then yields (record_input, record_output) append functions."""
+    run_dir = Path(settings.log_file_path).parent
+    inputs_path = run_dir / "inputs.jsonl"
+    outputs_path = run_dir / "outputs.jsonl"
+    inputs_path.write_text("", encoding="utf-8")
+    outputs_path.write_text("", encoding="utf-8")
+
+    def record_input(data: dict) -> None:
+        with inputs_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(data) + "\n")
+
+    def record_output(data: dict) -> None:
+        with outputs_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(data) + "\n")
+
+    yield record_input, record_output
 
 
 @pytest.fixture

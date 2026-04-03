@@ -2,18 +2,12 @@
 Core data models for RTM review agent.
 
 Defines Pydantic models for test cases, requirements, and evaluation responses
-aligned with FDA/IEC 62304 testing best practices.
 """
 
 from pydantic import BaseModel, Field
 import operator
 from typing import Optional, List, TypedDict, Annotated, Literal
 
-
-class EdgeCaseAnalysis(BaseModel):
-    potential_edge_cases: List[str]
-    risk_of_escaped_defect: str
-    recommended_mitigation: str
 
 class Requirement(BaseModel):
     """Software requirement model."""
@@ -46,14 +40,6 @@ class SummarizedTestCase(BaseModel):
     acceptance_criteria: List[str]
     is_generated: bool = False
 
-class AISummarizedTestCase(BaseModel):
-    test_case_id: str
-    objective: str
-    verifies: str
-    protocol: List[str]
-    acceptance_criteria: List[str]
-    is_generated: bool = True
-
 class TestSuite(BaseModel):
     requirement: Requirement
     test_cases: List[TestCase]
@@ -67,23 +53,16 @@ class EvaluatedSpec(BaseModel):
     covered_by_test_cases: List[str] = Field(..., description="A list of test case IDs from TestSuite['summary'] that effectively cover the test. In the event no test cases are covered, this should return as an empty list.")
     coverage_rationale: str = Field(..., description="Thought process behind the determination of whether the existing test cases within TestSuite cover or fail to cover the described DecomposedSpec")
 
-class ReviewComment(BaseModel):
-    comment: str
-    rationale: str
-    question: str
-    topic: str
-
-class AITestSuite(BaseModel):
-    spec_id: str = Field(..., description="The spec_id from the DecomposedSpec")
-    current_test_suite: List[SummarizedTestCase]
-    generated_tests: List[AISummarizedTestCase]
-    ai_test_suite: List[SummarizedTestCase] = Field(..., description="The final test suite consisting of the original TestSuite and the newly generated tests")
-    rationale: str = Field(..., description="The reasoning as to why this test was generated given the input requirement and current test suite")
+class SynthesizedAssessment(BaseModel):
+    """MoA-synthesized coverage assessment for a requirement."""
+    requirement: Requirement
+    coverage_assessment: str = Field(..., description="Synthesized coverage view across functional, negative, and boundary/edge perspectives, citing specific test case IDs")
+    comments: str = Field(..., description="Gaps, traced-but-uncovered tests, and recommendations")
 
 class RTMReviewState(TypedDict, total=False):
     requirement: Requirement
     test_cases: List[TestCase]
-    decomposed_requirement: DecomposedRequirement
-    test_suite: TestSuite
-    ai_test_suite: AITestSuite
+    decomposed_requirement: Optional[DecomposedRequirement]
+    test_suite: Optional[TestSuite]
     coverage_analysis: Annotated[List[EvaluatedSpec], operator.add]
+    synthesized_assessment: Optional[SynthesizedAssessment]

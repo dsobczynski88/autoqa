@@ -6,6 +6,7 @@ from autoqa.components.rtm_review_agent_medtech.core import (
     EvaluatedSpec,
     DecomposedRequirement,
     TestSuite,
+    SynthesizedAssessment,
 )
 
 
@@ -21,3 +22,4 @@ class ReviewResponse(BaseModel):
     coverage_analysis: List[EvaluatedSpec]
     decomposed_requirement: Optional[DecomposedRequirement] = None
     test_suite: Optional[TestSuite] = None
+    synthesized_assessment: Optional[SynthesizedAssessment] = None

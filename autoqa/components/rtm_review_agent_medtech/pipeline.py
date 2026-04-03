@@ -1,7 +1,11 @@
 import asyncio
-from typing import List, Optional, Dict, Any
+from pathlib import Path
+from typing import List, Optional, Dict, Any, Union
 from langchain_core.runnables import Runnable
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END
+from autoqa.core.config import settings
+from autoqa.utils import save_graph_png
 from autoqa.prj_logger import ProjectLogger
 from autoqa.components.processors import df_to_prompt_items
 from autoqa.components.clients import RateLimitOpenAIClient
@@ -11,7 +15,8 @@ from .nodes import (
     make_decomposer_node,
     make_summarizer_node,
     make_generator_node,
-    #make_aggregator_node,
+    make_synthesizer_node,
+    dispatch_coverage,
 )
 
 
@@ -43,17 +48,18 @@ class RTMReviewerRunnable:
     needed to update the test suite. 
     """
 
-    def __init__(self, client: RateLimitOpenAIClient, model: str):
+    def __init__(self, client: RateLimitOpenAIClient, model: str, model_kwargs: dict = {}, checkpointer: Union[MemorySaver, None] = None):
 
         self.client = client
         self.model = model
-        self.graph = RTMReviewerRunnable.build_simple_graph(self.client, self.model)
+        self.model_kwargs = model_kwargs
+        self.checkpointer = checkpointer # currently the graph collects intermediate responses via operator.add (no specific checkpointer implemented)
+        self.graph = self.build()
 
 
-    @staticmethod
-    def build_simple_graph(client: RateLimitOpenAIClient, model: str, checkpointer=None) -> Runnable:
+    def build(self) -> Runnable:
         """
-        Build a simple decomposer + summarizer -> coverage evaluator graph.
+        Build the graph to evaluate test case suites.
 
         Graph structure:
             START
@@ -63,33 +69,46 @@ class RTMReviewerRunnable:
             └─────────────────────────────────┘
               ↓ (fan-in: waits for both)
             ┌─────────────────────────────────┐
-            │COVERAGE EVALUATOR               │
-            │  in:  decomposed_requirement    │
-            │       test_suite                │
+            │COVERAGE_ROUTER (sync point)     │
+            └─────────────────────────────────┘
+              ↓ dispatch_coverage → Send × N
+            ┌─────────────────────────────────┐
+            │SPEC_EVALUATOR × N  (parallel)   │
+            └─────────────────────────────────┘
+              ↓ (fan-in: operator.add on coverage_analysis)
+            ┌─────────────────────────────────┐
+            │SYNTHESIZER  MoA-like aggregation│
             └─────────────────────────────────┘
               ↓
             END
         """
         sg = StateGraph(RTMReviewState)
 
-        decomposer = make_decomposer_node(client, model)
-        summarizer = make_summarizer_node(client, model)
-        generator = make_generator_node(client, model)
-        coverage = make_coverage_evaluator(client, model)
+        decomposer = make_decomposer_node(self.client, self.model, self.model_kwargs)
+        summarizer = make_summarizer_node(self.client, self.model, self.model_kwargs)
+        spec_evaluator = make_coverage_evaluator(self.client, self.model, self.model_kwargs)
+        synthesizer = make_synthesizer_node(self.client, self.model, self.model_kwargs)
 
         sg.add_node("decomposer", decomposer)
         sg.add_node("summarizer", summarizer)
-        sg.add_node("coverage", coverage)
+        sg.add_node("coverage_router", lambda state: {})
+        sg.add_node("spec_evaluator", spec_evaluator)
+        sg.add_node("synthesizer", synthesizer)
 
         # Decomposer and summarizer run in parallel from START
         sg.add_edge(START, "decomposer")
         sg.add_edge(START, "summarizer")
 
-        # Generator fans-in from both; receives decomposed_requirement + test_suite via state
-        sg.add_edge("decomposer", "coverage")
-        sg.add_edge("summarizer", "coverage")
+        # Fan-in to coverage_router, then fan-out via Send to N parallel spec evaluators
+        sg.add_edge("decomposer", "coverage_router")
+        sg.add_edge("summarizer", "coverage_router")
+        sg.add_conditional_edges("coverage_router", dispatch_coverage, ["spec_evaluator"])
 
-        sg.add_edge("coverage", END)
+        # Synthesizer aggregates coverage evaluations (MoA-like pattern)
+        # operator.add on coverage_analysis acts as fan-in across all spec_evaluator results
+        sg.add_edge("spec_evaluator", "synthesizer")
+        sg.add_edge("synthesizer", END)
 
-        flow = sg.compile(checkpointer=checkpointer)
+        flow = sg.compile(checkpointer=self.checkpointer)
+        save_graph_png(flow, Path(settings.log_file_path).parent / "graph.png")
         return flow
