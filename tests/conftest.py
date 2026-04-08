@@ -2,10 +2,10 @@ import json
 import os
 from pathlib import Path
 import pytest
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 load_dotenv()
 from autoqa.core.config import settings
-
 from autoqa.components.clients import RateLimitOpenAIClient
 from autoqa.components.rtm_review_agent_medtech.core import (
     Requirement,
@@ -116,12 +116,18 @@ def jsonl_recorders():
 
 @pytest.fixture
 def real_client():
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("BEDROCK_API_KEY_SONNET_45")
     if not api_key:
-        pytest.skip("OPENAI_API_KEY not set — skipping integration test")
-    return RateLimitOpenAIClient(api_key=api_key)
+        pytest.skip("BEDROCK_API_KEY not set — skipping integration test")
+    return AsyncOpenAI(
+        base_url=os.getenv('BEDROCK_API_BASE_URL'),
+        api_key=os.getenv('BEDROCK_API_KEY_SONNET_45'),
+        max_retries=os.getenv('MAX_RETRIES', 3)
+    )
+    
+
 
 
 @pytest.fixture
 def real_model():
-    return os.getenv("TEST_MODEL", "gpt-4o-mini")
+    return os.getenv("BEDROCK_MODEL_SONNET_45", "Bedrock-Claude-4.5-Sonnet")

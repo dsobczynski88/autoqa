@@ -128,7 +128,7 @@ class StandardLLMNode(BaseLLMNode, ABC):
             {"role": "user", "content": json.dumps(payload)},
         ]
 
-        result = await self.client.chat_completion(
+        result = await self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             **self.model_kwargs,
@@ -246,7 +246,7 @@ class SingleSpecEvaluatorNode(BaseLLMNode):
             {"role": "user", "content": json.dumps(payload)},
         ]
 
-        result = await self.client.chat_completion(
+        result = await self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             **self.model_kwargs,

@@ -3,7 +3,6 @@ import json
 from typing import Union, List, Dict, Any, Optional, Callable, Awaitable, TypeVar, Tuple
 import random
 import time
-import nest_asyncio
 import asyncio
 from collections import deque
 from tqdm.asyncio import tqdm_asyncio
@@ -11,15 +10,34 @@ from langchain_core.runnables import RunnableSequence
 from openai import OpenAI, AsyncOpenAI, RateLimitError
 from openai.types.chat import ChatCompletion
 
-# Apply nest_asyncio to allow nested event loops
-nest_asyncio.apply()
-
-# Set event loop
-loop = asyncio.ProactorEventLoop()
-asyncio.set_event_loop(loop)
-
 # Set generic data type "T"
 T = TypeVar("T")
+
+
+def _setup_event_loop():
+    """
+    Setup event loop appropriately based on the environment.
+    - In Jupyter/IPython: Apply nest_asyncio to allow nested loops
+    - In FastAPI/uvicorn: Let uvicorn manage the event loop
+    """
+    try:
+        # Check if we're in IPython/Jupyter
+        get_ipython()  # This will raise NameError if not in IPython
+        # We're in Jupyter, apply nest_asyncio
+        import nest_asyncio
+        nest_asyncio.apply()
+        logging.info("Applied nest_asyncio for Jupyter environment")
+    except NameError:
+        # Not in Jupyter, don't apply nest_asyncio
+        # Let the application (uvicorn) manage the event loop
+        logging.debug("Running in non-Jupyter environment, skipping nest_asyncio")
+    except Exception as e:
+        # If anything goes wrong, just continue
+        logging.warning(f"Could not setup event loop: {e}")
+
+
+# Call setup only once at module import
+_setup_event_loop()
 
 def _now() -> float:
     return time.time()

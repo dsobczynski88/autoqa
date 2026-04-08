@@ -9,6 +9,16 @@ def get_service(request: Request) -> RTMReviewService:
     return request.app.state.service
 
 
+@router.get("/", tags=["Health"])
+async def root():
+    """Root endpoint for health check."""
+    return {
+        "status": "ok",
+        "service": "AutoQA RTM Reviewer API",
+        "version": "0.1.0"
+    }
+
+
 @router.post("/review", response_model=ReviewResponse)
 async def review(
     body: ReviewRequest,
