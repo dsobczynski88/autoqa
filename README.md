@@ -89,6 +89,10 @@ uv run pytest -m integration -v
 
 # Parameterized batch run — 10 HC requirement records, records inputs.jsonl + outputs.jsonl
 uv run pytest tests/integration/test_pipeline.py::test_pipeline_parametrized -m integration -s
+
+uv run pytest tests/integration/test_pipeline.py::test_pipeline_parametrized_standard_coverage -m integration -s
+
+uv run pytest tests/integration/test_pipeline.py::test_pipeline_parametrized_advanced_coverage -m integration -s
 ```
 
 The unit test suite covers all pipeline nodes with both plain-JSON and markdown-wrapped LLM response variants. JSONL fixture files in `tests/fixtures/` make it easy to add new test scenarios — append a line to the relevant file and it is automatically picked up by `@pytest.mark.parametrize`.

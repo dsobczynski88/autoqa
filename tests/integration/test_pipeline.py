@@ -131,7 +131,7 @@ async def test_pipeline_parametrized_standard_coverage(
         decomposer="decomposer-v3.jinja2",
         summarizer="summarizer-v2.jinja2",
         coverage="coverage_evaluator-v4.jinja2",
-        synthesizer="synthesizer-v2.jinja2",
+        synthesizer="synthesizer-v3.jinja2",
     )
     graph = RTMReviewerRunnable(
         client=real_client, model=real_model, prompt_config=custom
