@@ -1,7 +1,7 @@
 import json
 import pytest
 from pathlib import Path
-from autoqa.core.config import settings
+from autoqa.core.config import settings, PromptConfig
 from autoqa.components.rtm_review_agent_medtech.pipeline import RTMReviewerRunnable
 from autoqa.components.rtm_review_agent_medtech.core import (
     RTMReviewState, Requirement, TestCase, DecomposedRequirement, TestSuite,
@@ -96,6 +96,86 @@ async def test_pipeline_parametrized(real_client, real_model, pipeline_input, js
     test_cases = [TestCase(**tc) for tc in pipeline_input["test_cases"]]
 
     graph = RTMReviewerRunnable(client=real_client, model=real_model)
+    result: RTMReviewState = await graph.graph.ainvoke(
+        {"requirement": requirement, "test_cases": test_cases}
+    )
+
+    assert isinstance(result.get("decomposed_requirement"), DecomposedRequirement)
+    assert isinstance(result.get("test_suite"), TestSuite)
+    evals = result.get("coverage_analysis", [])
+    assert len(evals) > 0
+    assert all(isinstance(e, EvaluatedSpec) for e in evals)
+    assert isinstance(result.get("synthesized_assessment"), SynthesizedAssessment)
+
+    record_output(serialize_state(result))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "pipeline_input",
+    PIPELINE_INPUTS,
+    ids=[r["requirement"]["req_id"] for r in PIPELINE_INPUTS],
+)
+async def test_pipeline_parametrized_standard_coverage(
+    real_client, real_model, pipeline_input, jsonl_recorders
+):
+    """Runs the full pipeline with the 'standard coverage' PromptConfig override."""
+    record_input, record_output = jsonl_recorders
+
+    record_input(pipeline_input)
+
+    requirement = Requirement(**pipeline_input["requirement"])
+    test_cases = [TestCase(**tc) for tc in pipeline_input["test_cases"]]
+
+    custom = PromptConfig(
+        decomposer="decomposer-v3.jinja2",
+        summarizer="summarizer-v2.jinja2",
+        coverage="coverage_evaluator-v4.jinja2",
+        synthesizer="synthesizer-v2.jinja2",
+    )
+    graph = RTMReviewerRunnable(
+        client=real_client, model=real_model, prompt_config=custom
+    )
+    result: RTMReviewState = await graph.graph.ainvoke(
+        {"requirement": requirement, "test_cases": test_cases}
+    )
+
+    assert isinstance(result.get("decomposed_requirement"), DecomposedRequirement)
+    assert isinstance(result.get("test_suite"), TestSuite)
+    evals = result.get("coverage_analysis", [])
+    assert len(evals) > 0
+    assert all(isinstance(e, EvaluatedSpec) for e in evals)
+    assert isinstance(result.get("synthesized_assessment"), SynthesizedAssessment)
+
+    record_output(serialize_state(result))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "pipeline_input",
+    PIPELINE_INPUTS,
+    ids=[r["requirement"]["req_id"] for r in PIPELINE_INPUTS],
+)
+async def test_pipeline_parametrized_advanced_coverage(
+    real_client, real_model, pipeline_input, jsonl_recorders
+):
+    """Runs the full pipeline with the 'advanced coverage' PromptConfig override."""
+    record_input, record_output = jsonl_recorders
+
+    record_input(pipeline_input)
+
+    requirement = Requirement(**pipeline_input["requirement"])
+    test_cases = [TestCase(**tc) for tc in pipeline_input["test_cases"]]
+
+    custom = PromptConfig(
+        decomposer="decomposer-v3.jinja2",
+        summarizer="summarizer-v2.jinja2",
+        coverage="coverage_evaluator-v4.jinja2",
+        synthesizer="synthesizer-v2.jinja2",
+    )
+    graph = RTMReviewerRunnable(
+        client=real_client, model=real_model, prompt_config=custom
+    )
     result: RTMReviewState = await graph.graph.ainvoke(
         {"requirement": requirement, "test_cases": test_cases}
     )

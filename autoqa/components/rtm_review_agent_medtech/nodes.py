@@ -323,19 +323,26 @@ class SynthesizerNode(StandardLLMNode):
 
 # Factory functions remain largely the same but instantiate the refactored classes
 
-def make_decomposer_node(client: RateLimitOpenAIClient, model: str, model_kwargs: dict, **template_vars) -> DecomposerNode:
+def make_decomposer_node(
+    client: RateLimitOpenAIClient,
+    model: str,
+    model_kwargs: dict,
+    prompt_template: str = "decomposer-v2.jinja2",
+    **template_vars,
+) -> DecomposerNode:
     """
     Create a DecomposerNode with prompt loaded from Jinja2 template.
 
     Args:
         client: RateLimitOpenAIClient instance
         model: Model identifier string
+        prompt_template: Filename of the Jinja2 template to render as the system prompt
         **template_vars: Optional variables to pass to the Jinja2 template
 
     Returns:
         DecomposerNode: Configured decomposer node
     """
-    system_prompt = render_prompt('decomposer-v2.jinja2', **template_vars)
+    system_prompt = render_prompt(prompt_template, **template_vars)
     return DecomposerNode(
         client=client,
         model=model,
@@ -345,19 +352,26 @@ def make_decomposer_node(client: RateLimitOpenAIClient, model: str, model_kwargs
     )
 
 
-def make_summarizer_node(client: RateLimitOpenAIClient, model: str, model_kwargs: dict, **template_vars) -> SummaryNode:
+def make_summarizer_node(
+    client: RateLimitOpenAIClient,
+    model: str,
+    model_kwargs: dict,
+    prompt_template: str = "summarizer-v2.jinja2",
+    **template_vars,
+) -> SummaryNode:
     """
     Create a SummaryNode with prompt loaded from Jinja2 template.
 
     Args:
         client: RateLimitOpenAIClient instance
         model: Model identifier string
+        prompt_template: Filename of the Jinja2 template to render as the system prompt
         **template_vars: Optional variables to pass to the Jinja2 template
 
     Returns:
         SummaryNode: Configured summarizer node
     """
-    system_prompt = render_prompt('summarizer-v2.jinja2', **template_vars)
+    system_prompt = render_prompt(prompt_template, **template_vars)
     return SummaryNode(
         client=client,
         model=model,
@@ -389,7 +403,13 @@ def make_generator_node(client: RateLimitOpenAIClient, model: str, model_kwargs:
     )
 
 
-def make_coverage_evaluator(client: RateLimitOpenAIClient, model: str, model_kwargs: dict, **template_vars) -> SingleSpecEvaluatorNode:
+def make_coverage_evaluator(
+    client: RateLimitOpenAIClient,
+    model: str,
+    model_kwargs: dict,
+    prompt_template: str = "coverage_evaluator-v4.jinja2",
+    **template_vars,
+) -> SingleSpecEvaluatorNode:
     """
     Create a SingleSpecEvaluatorNode for per-spec coverage evaluation.
 
@@ -399,12 +419,13 @@ def make_coverage_evaluator(client: RateLimitOpenAIClient, model: str, model_kwa
     Args:
         client: RateLimitOpenAIClient instance
         model: Model identifier string
+        prompt_template: Filename of the Jinja2 template to render as the system prompt
         **template_vars: Optional variables to pass to the Jinja2 template
 
     Returns:
         SingleSpecEvaluatorNode: Configured single-spec evaluator node
     """
-    system_prompt = render_prompt('coverage_evaluator-v4.jinja2', **template_vars)
+    system_prompt = render_prompt(prompt_template, **template_vars)
     return SingleSpecEvaluatorNode(
         client=client,
         model=model,
@@ -413,7 +434,13 @@ def make_coverage_evaluator(client: RateLimitOpenAIClient, model: str, model_kwa
     )
 
 
-def make_synthesizer_node(client: RateLimitOpenAIClient, model: str, model_kwargs: dict, **template_vars) -> SynthesizerNode:
+def make_synthesizer_node(
+    client: RateLimitOpenAIClient,
+    model: str,
+    model_kwargs: dict,
+    prompt_template: str = "synthesizer_assessment.jinja2",
+    **template_vars,
+) -> SynthesizerNode:
     """
     Create a SynthesizerNode (MoA-inspired) that synthesizes coverage evaluations
     into a single holistic assessment of requirement coverage.
@@ -421,12 +448,13 @@ def make_synthesizer_node(client: RateLimitOpenAIClient, model: str, model_kwarg
     Args:
         client: RateLimitOpenAIClient instance
         model: Model identifier string
+        prompt_template: Filename of the Jinja2 template to render as the system prompt
         **template_vars: Optional variables to pass to the Jinja2 template
 
     Returns:
         SynthesizerNode: Configured synthesizer node
     """
-    system_prompt = render_prompt('synthesizer_assessment.jinja2', **template_vars)
+    system_prompt = render_prompt(prompt_template, **template_vars)
     return SynthesizerNode(
         client=client,
         model=model,
