@@ -9,7 +9,7 @@ from autoqa.components.rtm_review_agent_medtech.core import (
 )
 from tests.helpers import load_jsonl, serialize_state
 
-PIPELINE_INPUTS = load_jsonl("hc_pipeline_inputs.jsonl")
+PIPELINE_INPUTS = load_jsonl("gold_dataset.jsonl")
 
 
 @pytest.mark.integration
