@@ -1,7 +1,7 @@
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from autoqa.components.clients import RateLimitOpenAIClient
-from autoqa.components.rtm_review_agent_medtech.pipeline import RTMReviewerRunnable
+from autoqa.components.test_suite_reviewer.pipeline import RTMReviewerRunnable
 from autoqa.api.schemas import ReviewRequest, ReviewResponse
 
 

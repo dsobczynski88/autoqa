@@ -21,7 +21,7 @@ Decomposes high-level requirements into atomic specifications.
 
 **Usage**:
 ```python
-from autoqa.components.rtm_review_agent_medtech.nodes import make_decomposer_node
+from autoqa.components.test_suite_reviewer.nodes import make_decomposer_node
 
 node = make_decomposer_node(llm)
 ```
@@ -35,7 +35,7 @@ Summarizes raw test cases into structured format.
 
 **Usage**:
 ```python
-from autoqa.components.rtm_review_agent_medtech.nodes import make_summarizer_node
+from autoqa.components.test_suite_reviewer.nodes import make_summarizer_node
 
 node = make_summarizer_node(llm)
 ```
@@ -49,7 +49,7 @@ Generates adversarial test cases to fill coverage gaps.
 
 **Usage**:
 ```python
-from autoqa.components.rtm_review_agent_medtech.nodes import make_generator_node
+from autoqa.components.test_suite_reviewer.nodes import make_generator_node
 
 node = make_generator_node(llm)
 ```
@@ -63,7 +63,7 @@ Evaluates test coverage against decomposed specifications.
 
 **Usage**:
 ```python
-from autoqa.components.rtm_review_agent_medtech.nodes import make_coverage_evaluator
+from autoqa.components.test_suite_reviewer.nodes import make_coverage_evaluator
 
 node = make_coverage_evaluator(llm)
 ```
@@ -73,7 +73,7 @@ node = make_coverage_evaluator(llm)
 To customize prompts with dynamic content, pass variables to the factory functions:
 
 ```python
-from autoqa.components.rtm_review_agent_medtech.nodes import make_decomposer_node
+from autoqa.components.test_suite_reviewer.nodes import make_decomposer_node
 
 # Pass custom variables
 node = make_decomposer_node(

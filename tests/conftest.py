@@ -7,7 +7,7 @@ load_dotenv()
 from autoqa.core.config import settings
 
 from autoqa.components.clients import RateLimitOpenAIClient
-from autoqa.components.rtm_review_agent_medtech.core import (
+from autoqa.components.test_suite_reviewer.core import (
     Requirement,
     TestCase,
     DecomposedSpec,

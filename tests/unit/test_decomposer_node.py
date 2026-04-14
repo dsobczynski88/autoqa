@@ -1,8 +1,8 @@
 import json
 import pytest
 from tests.helpers import make_mock_client, load_jsonl
-from autoqa.components.rtm_review_agent_medtech.nodes import DecomposerNode
-from autoqa.components.rtm_review_agent_medtech.core import DecomposedRequirement, Requirement
+from autoqa.components.test_suite_reviewer.nodes import DecomposerNode
+from autoqa.components.test_suite_reviewer.core import DecomposedRequirement, Requirement
 
 MOCK_RESPONSE = json.dumps({
     "requirement": {"req_id": "REQ-001", "text": "The system shall display an alert when sensor reading exceeds 100 mg/dL."},

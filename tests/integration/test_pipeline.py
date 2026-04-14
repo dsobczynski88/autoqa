@@ -2,8 +2,8 @@ import json
 import pytest
 from pathlib import Path
 from autoqa.core.config import settings, PromptConfig
-from autoqa.components.rtm_review_agent_medtech.pipeline import RTMReviewerRunnable
-from autoqa.components.rtm_review_agent_medtech.core import (
+from autoqa.components.test_suite_reviewer.pipeline import RTMReviewerRunnable
+from autoqa.components.test_suite_reviewer.core import (
     RTMReviewState, Requirement, TestCase, DecomposedRequirement, TestSuite,
     EvaluatedSpec, SynthesizedAssessment,
 )

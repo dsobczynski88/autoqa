@@ -1,8 +1,8 @@
 import json
 import pytest
 from tests.helpers import make_mock_client, load_jsonl
-from autoqa.components.rtm_review_agent_medtech.nodes import TestGeneratorNode
-from autoqa.components.rtm_review_agent_medtech.core import AITestSuite, DecomposedRequirement, TestSuite
+from autoqa.components.test_suite_reviewer.nodes import TestGeneratorNode
+from autoqa.components.test_suite_reviewer.core import AITestSuite, DecomposedRequirement, TestSuite
 
 MOCK_RESPONSE = json.dumps({
     "spec_id": "S-001",

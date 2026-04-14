@@ -1,6 +1,6 @@
 import pytest
-from autoqa.components.rtm_review_agent_medtech.nodes import make_generator_node
-from autoqa.components.rtm_review_agent_medtech.core import AITestSuite
+from autoqa.components.test_suite_reviewer.nodes import make_generator_node
+from autoqa.components.test_suite_reviewer.core import AITestSuite
 
 
 @pytest.mark.integration

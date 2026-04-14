@@ -1,6 +1,6 @@
 from typing import List, Optional
 from pydantic import BaseModel
-from autoqa.components.rtm_review_agent_medtech.core import (
+from autoqa.components.test_suite_reviewer.core import (
     Requirement,
     TestCase,
     EvaluatedSpec,

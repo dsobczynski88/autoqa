@@ -1,6 +1,6 @@
 import pytest
-from autoqa.components.rtm_review_agent_medtech.nodes import make_coverage_evaluator
-from autoqa.components.rtm_review_agent_medtech.core import EvaluatedSpec
+from autoqa.components.test_suite_reviewer.nodes import make_coverage_evaluator
+from autoqa.components.test_suite_reviewer.core import EvaluatedSpec
 
 
 @pytest.mark.integration
