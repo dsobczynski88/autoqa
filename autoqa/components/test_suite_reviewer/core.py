@@ -1,36 +1,34 @@
 """
-Core data models for RTM review agent.
+Core data models for RTM review agent (test suite reviewer).
 
-Defines Pydantic models for test cases, requirements, and evaluation responses
+Shared models (Requirement, DecomposedSpec, DecomposedRequirement, TestCase)
+live in autoqa.components.shared.core and are re-exported here for
+backward compatibility with existing call sites.
 """
 
 from pydantic import BaseModel, Field
 import operator
-from typing import Optional, List, TypedDict, Annotated, Literal
+from typing import Optional, List, TypedDict, Annotated
 
+from autoqa.components.shared.core import (
+    Requirement,
+    DecomposedSpec,
+    DecomposedRequirement,
+    TestCase,
+)
 
-class Requirement(BaseModel):
-    """Software requirement model."""
-    req_id: Optional[str] = None
-    text: str
+__all__ = [
+    "Requirement",
+    "DecomposedSpec",
+    "DecomposedRequirement",
+    "TestCase",
+    "SummarizedTestCase",
+    "TestSuite",
+    "EvaluatedSpec",
+    "SynthesizedAssessment",
+    "RTMReviewState",
+]
 
-class DecomposedSpec(BaseModel):
-    spec_id: str
-    type: str
-    description: str
-    acceptance_criteria: str
-    rationale: str
-
-class DecomposedRequirement(BaseModel):
-    requirement: Requirement
-    decomposed_specifications: List[DecomposedSpec]
-
-class TestCase(BaseModel):
-    test_id: str
-    description: str
-    setup: Optional[str] = None
-    steps: Optional[str] = None
-    expectedResults: Optional[str] = None
 
 class SummarizedTestCase(BaseModel):
     test_case_id: str

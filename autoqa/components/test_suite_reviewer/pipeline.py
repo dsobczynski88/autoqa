@@ -22,30 +22,22 @@ from .nodes import (
 
 class RTMReviewerRunnable:
     """
-    LangGraph-based RTM reviewer using OpenAI and Anthropic LLMs.
+    LangGraph-based RTM reviewer that evaluates how well a supplied test suite
+    covers a single requirement.
 
-    Evaluates requirement verification coverage against 4 criteria:
-    1. Functional
-    2. Input/Output
-    3. Boundary
-    4. Negative Testing
-    
-    Initially, a requirement and all traced test cases is supplied. The requirement
-    is decomposed to testable blocks using the decomposer node. The test cases are summarized
-    via the summary node to focus on what is achieved rather than provide the full raw steps. 
-    The intent is to get an overall view of what the test case expects to accomplish and how it intends to 
-    do so.
+    A Requirement plus its traced test cases enters at START. Decomposer and
+    Summarizer run in parallel: the decomposer splits the requirement into
+    atomic specs; the summarizer condenses each raw test case into an objective/
+    protocol/acceptance-criteria summary. Both outputs are needed before coverage
+    evaluation, so coverage_router serves as the join barrier.
 
-    The decomposed requirement and summarized test cases are assembled using the assemble node. This
-    node doesn't require an LLM it is simply an organization step to collect the generated inputs.
+    After the join, dispatch_coverage fans out one Send per decomposed spec to
+    the spec_evaluator node — so spec_evaluator runs N times in parallel, each
+    call scoring coverage of one spec against the summarized test suite. The
+    operator.add reducer on coverage_analysis accumulates these per-spec verdicts.
 
-    The assembled context is then passed (in parallel) to each of the four (4) evaluator nodes. Each
-    evaluator node will update the state with an assessment based on its domain expertise. 
-
-    The assessments across the coverage evaluators is then aggregated at the aggregator node. The intent
-    of the aggregator node is to reason using the initial inputs and the assessments 
-    from the coverage evaluators to provide a refined, actionable recommendation on any additional steps
-    needed to update the test suite. 
+    Finally, the synthesizer performs MoA-style aggregation across all per-spec
+    verdicts to produce a single holistic SynthesizedAssessment.
     """
 
     def __init__(
@@ -111,6 +103,8 @@ class RTMReviewerRunnable:
 
         sg.add_node("decomposer", decomposer)
         sg.add_node("summarizer", summarizer)
+        # Join barrier: LangGraph's add_conditional_edges needs a single named source,
+        # so we land decomposer + summarizer here before dispatch_coverage fans out.
         sg.add_node("coverage_router", lambda state: {})
         sg.add_node("spec_evaluator", spec_evaluator)
         sg.add_node("synthesizer", synthesizer)
