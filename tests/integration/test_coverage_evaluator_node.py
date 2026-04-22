@@ -19,4 +19,12 @@ async def test_coverage_evaluator_node_happy_path(
         sample_decomposed_requirement.decomposed_specifications
     )
     assert all(isinstance(e, EvaluatedSpec) for e in result["coverage_analysis"])
-    assert all(0 <= e.covered_extent <= 5 for e in result["coverage_analysis"])
+    for e in result["coverage_analysis"]:
+        if e.covered_exists:
+            assert len(e.covered_by_test_cases) > 0
+            for ctc in e.covered_by_test_cases:
+                assert ctc.dimensions, "each covering TC must carry ≥1 dimension"
+                for d in ctc.dimensions:
+                    assert d in {"functional", "negative", "boundary"}
+        else:
+            assert e.covered_by_test_cases == []

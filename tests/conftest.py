@@ -49,14 +49,12 @@ def sample_decomposed_requirement(sample_requirement):
     specs = [
         DecomposedSpec(
             spec_id="S-001",
-            type="Functional",
             description="Alert fires when reading > 100 mg/dL",
             acceptance_criteria="Alert visible within 1s",
             rationale="Happy path",
         ),
         DecomposedSpec(
             spec_id="S-002",
-            type="Boundary",
             description="No alert when reading <= 100 mg/dL",
             acceptance_criteria="No alert at exactly 100 mg/dL",
             rationale="Boundary",
@@ -96,7 +94,8 @@ def sample_test_suite(sample_requirement, sample_test_cases):
 @pytest.fixture(scope="session")
 def jsonl_recorders():
     """Session-scoped fixture that clears inputs.jsonl / outputs.jsonl once at session
-    start, then yields (record_input, record_output) append functions."""
+    start, yields (record_input, record_output) append functions, then auto-generates
+    the HTML viewer at session teardown if outputs.jsonl has records."""
     run_dir = Path(settings.log_file_path).parent
     inputs_path = run_dir / "inputs.jsonl"
     outputs_path = run_dir / "outputs.jsonl"
@@ -112,6 +111,15 @@ def jsonl_recorders():
             f.write(json.dumps(data) + "\n")
 
     yield record_input, record_output
+
+    try:
+        from autoqa.viewer import write_viewer
+        out = write_viewer(outputs_path)
+    except Exception as exc:
+        print(f"\n[viewer] skipped: {exc}")
+    else:
+        if out is not None:
+            print(f"\n[viewer] wrote {out}")
 
 
 @pytest.fixture

@@ -9,7 +9,6 @@ MOCK_RESPONSE = json.dumps({
     "decomposed_specifications": [
         {
             "spec_id": "S-001",
-            "type": "Functional",
             "description": "Alert fires when reading exceeds 100 mg/dL",
             "acceptance_criteria": "Alert visible within 1s of threshold breach",
             "rationale": "Primary happy-path behavior",

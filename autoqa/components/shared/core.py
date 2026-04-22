@@ -15,7 +15,6 @@ class Requirement(BaseModel):
 
 class DecomposedSpec(BaseModel):
     spec_id: str
-    type: str
     description: str
     acceptance_criteria: str
     rationale: str

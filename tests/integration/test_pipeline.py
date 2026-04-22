@@ -53,7 +53,8 @@ async def test_pipeline_coverage_node(real_client, real_model, sample_requiremen
     assert all(isinstance(e, EvaluatedSpec) for e in evals)
     print(f"\n[coverage] {len(evals)} specs evaluated")
     for e in evals:
-        print(f"  {e.spec_id}: covered={e.covered_exists}, extent={e.covered_extent}/5")
+        dims = sorted({d for ctc in e.covered_by_test_cases for d in ctc.dimensions})
+        print(f"  {e.spec_id}: covered={e.covered_exists}, dimensions={dims}")
         print(f"  rationale: {e.coverage_rationale[:80]}")
 
 

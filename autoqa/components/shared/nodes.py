@@ -157,7 +157,7 @@ def make_decomposer_node(
     client: RateLimitOpenAIClient,
     model: str,
     model_kwargs: dict,
-    prompt_template: str = "decomposer-v2.jinja2",
+    prompt_template: str = "decomposer-v4.jinja2",
     **template_vars,
 ) -> DecomposerNode:
     """
