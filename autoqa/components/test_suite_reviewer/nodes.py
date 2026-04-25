@@ -247,7 +247,7 @@ def make_coverage_evaluator(
     client: RateLimitOpenAIClient,
     model: str,
     model_kwargs: dict,
-    prompt_template: str = "coverage_evaluator-v5.jinja2",
+    prompt_template: str = "coverage_evaluator-v6.jinja2",
     **template_vars,
 ) -> SingleSpecEvaluatorNode:
     """
@@ -278,7 +278,7 @@ def make_synthesizer_node(
     client: RateLimitOpenAIClient,
     model: str,
     model_kwargs: dict,
-    prompt_template: str = "synthesizer-v4.jinja2",
+    prompt_template: str = "synthesizer-v5.jinja2",
     **template_vars,
 ) -> SynthesizerNode:
     """

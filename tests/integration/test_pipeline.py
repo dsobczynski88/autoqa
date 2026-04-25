@@ -55,7 +55,8 @@ async def test_pipeline_coverage_node(real_client, real_model, sample_requiremen
     for e in evals:
         dims = sorted({d for ctc in e.covered_by_test_cases for d in ctc.dimensions})
         print(f"  {e.spec_id}: covered={e.covered_exists}, dimensions={dims}")
-        print(f"  rationale: {e.coverage_rationale[:80]}")
+        for ctc in e.covered_by_test_cases:
+            print(f"    {ctc.test_case_id} ({','.join(ctc.dimensions)}): {ctc.rationale[:80]}")
 
 
 @pytest.mark.integration

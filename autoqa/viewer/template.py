@@ -12,7 +12,9 @@ HTML_TEMPLATE = r"""<!doctype html>
   :root {
     --bg: #fafafa; --panel: #fff; --ink: #1a1a1a; --mute: #666;
     --line: #e3e3e3; --accent: #2b62c2; --ok: #d7f5db; --bad: #ffdcc2;
+    --warn: #fff4cc;
     --chip-yes: #2e7d32; --chip-no: #c62828; --chip-na: #757575;
+    --chip-warn: #b58105;
   }
   * { box-sizing: border-box; }
   body { margin: 0; font: 14px/1.45 -apple-system, Segoe UI, sans-serif; background: var(--bg); color: var(--ink); }
@@ -33,6 +35,7 @@ HTML_TEMPLATE = r"""<!doctype html>
   .verdict-badge { font-size: 16px; font-weight: 700; padding: 6px 14px; border-radius: 6px; }
   .verdict-Yes { background: var(--ok); color: #1b5e20; }
   .verdict-No  { background: var(--bad); color: #a1390a; }
+  .verdict-Yellow { background: var(--warn); color: #6b4f00; }
   table.findings { width: 100%; border-collapse: collapse; font-size: 13px; }
   table.findings th, table.findings td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
   table.findings th { background: #f2f4f7; font-weight: 600; font-size: 12px; color: var(--mute); }
@@ -40,6 +43,17 @@ HTML_TEMPLATE = r"""<!doctype html>
   .chip-Yes { background: var(--chip-yes); }
   .chip-No  { background: var(--chip-no); }
   .chip-N-A { background: var(--chip-na); }
+  .chip-Yellow { background: var(--chip-warn); }
+  .help-icon {
+    display: inline-block; width: 16px; height: 16px; line-height: 16px;
+    text-align: center; border-radius: 50%; background: #e3e3e3;
+    color: var(--mute); font-size: 11px; font-weight: 700; cursor: pointer;
+    margin-left: 6px; vertical-align: middle;
+  }
+  .help-icon:hover { background: var(--accent); color: #fff; }
+  .criteria-help dt { font-weight: 700; margin-top: 8px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #2b3a8b; }
+  .criteria-help dd { margin: 2px 0 0 0; }
+  .criteria-help .legend { margin-top: 14px; padding: 8px 10px; background: var(--warn); color: #6b4f00; border-radius: 4px; font-size: 12px; }
   .cited { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--mute); }
   .link-like { color: var(--accent); cursor: pointer; text-decoration: underline; }
   details { margin: 10px 0; }
@@ -143,12 +157,15 @@ function renderLeft() {
     const extras = [];
     if (f.cited_test_case_ids?.length) extras.push(`TCs: ${f.cited_test_case_ids.map(escapeHTML).join(", ")}`);
     if (f.uncovered_spec_ids?.length) extras.push(`uncovered: ${f.uncovered_spec_ids.map(escapeHTML).join(", ")}`);
+    const chipClass = (f.verdict === "Yes" && f.partial) ? "Yellow" : f.verdict;
     return `<tr>
       <td><strong>${escapeHTML(f.code)}</strong> ${escapeHTML(f.dimension)}</td>
-      <td><span class="chip chip-${f.verdict}">${escapeHTML(f.verdict)}</span></td>
+      <td><span class="chip chip-${chipClass}">${escapeHTML(f.verdict)}</span></td>
       <td>${escapeHTML(f.rationale)}${extras.length ? `<div class="cited">${extras.join(" · ")}</div>` : ""}</td>
     </tr>`;
   }).join("");
+  const overallPartial = (sa?.overall_verdict === "Yes") && (sa?.mandatory_findings ?? []).some(f => f.partial);
+  const overallClass = overallPartial ? "Yellow" : sa?.overall_verdict;
   const tcList = (rec.test_cases ?? []).map((_, i) =>
     `<li><a onclick="openTC(${i})">${escapeHTML(rec.test_cases[i].test_id)}</a> — ${escapeHTML(rec.test_cases[i].description)}</li>`
   ).join("");
@@ -164,11 +181,11 @@ function renderLeft() {
     <h2>Coverage Assessment</h2>
     <div class="verdict-row">
       <span>Overall verdict:</span>
-      <span class="verdict-badge verdict-${sa?.overall_verdict}">${escapeHTML(sa?.overall_verdict ?? "?")}</span>
+      <span class="verdict-badge verdict-${overallClass}">${escapeHTML(sa?.overall_verdict ?? "?")}</span>
       <span class="link-like" onclick="openSpecs()">Decomposed specs &amp; coverage analysis →</span>
     </div>
     <table class="findings">
-      <thead><tr><th>Dimension</th><th>Verdict</th><th>Rationale</th></tr></thead>
+      <thead><tr><th>Dimension <span class="help-icon" onclick="openCriteriaHelp()" title="What do M1-M5 mean?">?</span></th><th>Verdict</th><th>Rationale</th></tr></thead>
       <tbody>${findings}</tbody>
     </table>
     ${sa?.comments ? `<div class="comments"><h2>Comments</h2><div>${escapeHTML(sa.comments)}</div></div>` : ""}
@@ -241,15 +258,33 @@ function openSpecs() {
       <td>${escapeHTML(s.acceptance_criteria)}</td>
       <td>${covered ? "✓ covered" : "✗ not covered"}</td>
       <td>${tcs}</td>
-      <td style="max-width:320px">${escapeHTML(a?.coverage_rationale ?? "")}</td>
     </tr>`;
   }).join("");
   openModal(`
     <h3>Decomposed specifications & coverage analysis</h3>
     <table class="detail">
-      <thead><tr><th>Spec ID</th><th>Description</th><th>Acceptance criteria</th><th>Covered?</th><th>Covering TCs (dimensions)</th><th>Coverage rationale</th></tr></thead>
+      <thead><tr><th>Spec ID</th><th>Description</th><th>Acceptance criteria</th><th>Covered?</th><th>Covering TCs (dimensions)</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
+  `);
+}
+
+function openCriteriaHelp() {
+  openModal(`
+    <h3>Mandatory rubric — M1 to M5</h3>
+    <dl class="criteria-help">
+      <dt>M1 Functional</dt>
+      <dd>At least one test case verifies the core positive behavior of the requirement (happy path). Never N-A.</dd>
+      <dt>M2 Negative</dt>
+      <dd>At least one test case exercises invalid input, an error condition, or a failure mode. N-A only when the requirement has no validation surface.</dd>
+      <dt>M3 Boundary</dt>
+      <dd>At least one test case probes a threshold, numeric limit, or role/tag transition. N-A when the requirement has no such surface (e.g. a passive UI-presence check).</dd>
+      <dt>M4 Spec Coverage</dt>
+      <dd>Every decomposed spec has at least one covering test case. Never N-A.</dd>
+      <dt>M5 Terminology</dt>
+      <dd>Test-case vocabulary aligns with the requirement (no semantic drift, no renamed roles or tags). Never N-A.</dd>
+    </dl>
+    <div class="legend">Yellow = "Yes, but partial" — coverage exists for this dimension but is incomplete; reviewer should re-check. A partial Yes still passes SoP gating.</div>
   `);
 }
 

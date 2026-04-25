@@ -88,14 +88,8 @@ class EvaluatedSpec(BaseModel):
         ...,
         description=(
             "Test cases from TestSuite.summary that cover this spec, each annotated "
-            "with the dimension(s) they exercise. Empty list when covered_exists is False."
-        ),
-    )
-    coverage_rationale: str = Field(
-        ...,
-        description=(
-            "Thought process behind the determination of whether the existing test "
-            "cases within TestSuite cover or fail to cover the described DecomposedSpec."
+            "with the dimension(s) they exercise and a per-TC V&V rationale. "
+            "Empty list when covered_exists is False."
         ),
     )
 
@@ -112,6 +106,15 @@ class MandatoryFinding(BaseModel):
             "Yes / No / N-A. Only M2 and M3 may be N-A (when the requirement has "
             "no validation surface or no threshold/limit surface respectively). "
             "M1, M4, M5 must be Yes or No."
+        ),
+    )
+    partial: bool = Field(
+        default=False,
+        description=(
+            "True ONLY when verdict='Yes' AND coverage of the requirement is "
+            "incomplete in some material way (drives Yellow rendering in the "
+            "viewer). Always False when verdict is No or N-A. Has NO effect on "
+            "overall_verdict aggregation — partial-Yes still passes SoP gating."
         ),
     )
     rationale: str = Field(
