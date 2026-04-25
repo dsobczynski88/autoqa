@@ -1,14 +1,28 @@
-"""HTML viewer generator for RTM pipeline batch outputs.
+"""HTML viewer generator for RTM and test-case pipeline batch outputs.
 
 Public API:
-    from autoqa.viewer import build_viewer, write_viewer
-    write_viewer("logs/run-<ts>/outputs.jsonl")  # writes viewer.html next to it
+    from autoqa.viewer import write_viewer, write_viewer_tc
+    write_viewer("logs/run-<ts>/outputs.jsonl")        # RTM (test_suite_reviewer)
+    write_viewer_tc("logs/run-<ts>/outputs.jsonl")     # test_case_reviewer
 
 CLI:
-    uv run python -m autoqa.viewer logs/run-<ts>/outputs.jsonl [-o viewer.html]
+    uv run python -m autoqa.viewer logs/run-<ts>/outputs.jsonl [-o viewer.html] [--type rtm|tc]
 """
 
-from autoqa.viewer.generator import build_viewer, write_viewer
+from autoqa.viewer.generator import (
+    build_viewer,
+    build_viewer_tc,
+    write_viewer,
+    write_viewer_tc,
+)
 from autoqa.viewer.template import HTML_TEMPLATE
+from autoqa.viewer.template_test_case import TC_HTML_TEMPLATE
 
-__all__ = ["build_viewer", "write_viewer", "HTML_TEMPLATE"]
+__all__ = [
+    "build_viewer",
+    "build_viewer_tc",
+    "write_viewer",
+    "write_viewer_tc",
+    "HTML_TEMPLATE",
+    "TC_HTML_TEMPLATE",
+]

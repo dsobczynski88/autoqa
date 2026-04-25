@@ -25,6 +25,7 @@ dependencies = [
   "tqdm>=4.66",
   "fastapi[standard]>=0.115",
   "pydantic-settings>=2.0",
+  "pyyaml>=6.0",
 ]
 
 [dependency-groups]

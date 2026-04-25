@@ -1,4 +1,4 @@
-"""Build and write HTML viewer files from an RTM pipeline outputs.jsonl."""
+"""Build and write HTML viewer files from RTM or test-case pipeline outputs.jsonl."""
 
 from __future__ import annotations
 
@@ -9,42 +9,53 @@ import sys
 from typing import Iterable, Optional, Union
 
 from autoqa.viewer.template import HTML_TEMPLATE
+from autoqa.viewer.template_test_case import TC_HTML_TEMPLATE
 
 PathLike = Union[str, pathlib.Path]
 
 
+def _render(
+    records: Iterable[dict],
+    source_label: str,
+    run_key: str,
+    template: str,
+    title_prefix: str,
+) -> str:
+    data_json = json.dumps(list(records), ensure_ascii=False)
+    data_json = data_json.replace("</", "<\\/")
+    return (
+        template
+        .replace("{{DATA}}", data_json)
+        .replace("{{SOURCE}}", _escape_html(source_label))
+        .replace("{{TITLE}}", _escape_html(f"{title_prefix} — {source_label}"))
+        .replace("{{RUN_KEY}}", _escape_html(run_key))
+    )
+
+
 def build_viewer(records: Iterable[dict], source_label: str, run_key: str) -> str:
-    """Render the single-file HTML viewer for ``records``.
+    """Render the single-file HTML viewer for RTM (test_suite_reviewer) records.
 
     ``source_label`` appears in the title/header (usually the JSONL path).
     ``run_key`` becomes part of the localStorage key that stores reviewer feedback,
     so the same run's ratings persist across re-opens of the same viewer.
     """
-    data_json = json.dumps(list(records), ensure_ascii=False)
-    data_json = data_json.replace("</", "<\\/")
-    return (
-        HTML_TEMPLATE
-        .replace("{{DATA}}", data_json)
-        .replace("{{SOURCE}}", _escape_html(source_label))
-        .replace("{{TITLE}}", _escape_html(f"Batch output viewer — {source_label}"))
-        .replace("{{RUN_KEY}}", _escape_html(run_key))
-    )
+    return _render(records, source_label, run_key, HTML_TEMPLATE, "Batch output viewer")
 
 
-def write_viewer(
-    jsonl_path: PathLike,
-    output_path: Optional[PathLike] = None,
-) -> Optional[pathlib.Path]:
-    """Read ``jsonl_path``, render the viewer, write to ``output_path``.
+def build_viewer_tc(records: Iterable[dict], source_label: str, run_key: str) -> str:
+    """Render the single-file HTML viewer for test-case-reviewer records.
 
-    Default output is ``<jsonl_dir>/viewer.html``. Returns the output path on
-    success; returns ``None`` when the JSONL is empty (no viewer is written).
-    Raises ``FileNotFoundError`` if the input path does not exist.
+    Same contract as :func:`build_viewer` but renders TCReviewState records
+    using the test-case template. The localStorage key namespace is distinct
+    so RTM feedback and test-case feedback never collide for the same run.
     """
+    return _render(records, source_label, run_key, TC_HTML_TEMPLATE, "Test case output viewer")
+
+
+def _read_records(jsonl_path: PathLike) -> tuple[pathlib.Path, list[dict]]:
     src = pathlib.Path(jsonl_path)
     if not src.exists():
         raise FileNotFoundError(src)
-
     records: list[dict] = []
     for i, line in enumerate(src.read_text(encoding="utf-8").splitlines(), start=1):
         line = line.strip()
@@ -54,13 +65,43 @@ def write_viewer(
             records.append(json.loads(line))
         except json.JSONDecodeError as e:
             raise ValueError(f"{src}:{i}: invalid JSON ({e})") from e
+    return src, records
 
+
+def write_viewer(
+    jsonl_path: PathLike,
+    output_path: Optional[PathLike] = None,
+) -> Optional[pathlib.Path]:
+    """Read ``jsonl_path``, render the RTM viewer, write to ``output_path``.
+
+    Default output is ``<jsonl_dir>/viewer.html``. Returns the output path on
+    success; returns ``None`` when the JSONL is empty (no viewer is written).
+    Raises ``FileNotFoundError`` if the input path does not exist.
+    """
+    src, records = _read_records(jsonl_path)
     if not records:
         return None
-
     out = pathlib.Path(output_path) if output_path else src.parent / "viewer.html"
     run_key = src.parent.name or src.stem
     out.write_text(build_viewer(records, str(src), run_key), encoding="utf-8")
+    return out
+
+
+def write_viewer_tc(
+    jsonl_path: PathLike,
+    output_path: Optional[PathLike] = None,
+) -> Optional[pathlib.Path]:
+    """Read ``jsonl_path``, render the test-case viewer, write to ``output_path``.
+
+    Default output is ``<jsonl_dir>/viewer_tc.html`` so a single run directory
+    can hold both an RTM viewer and a test-case viewer side by side.
+    """
+    src, records = _read_records(jsonl_path)
+    if not records:
+        return None
+    out = pathlib.Path(output_path) if output_path else src.parent / "viewer_tc.html"
+    run_key = src.parent.name or src.stem
+    out.write_text(build_viewer_tc(records, str(src), run_key), encoding="utf-8")
     return out
 
 
@@ -75,13 +116,16 @@ def _escape_html(s: str) -> str:
 
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("jsonl_path", help="Path to outputs.jsonl (one RTMReviewState per line)")
+    ap.add_argument("jsonl_path", help="Path to outputs.jsonl (one state record per line)")
     ap.add_argument("-o", "--output", default=None,
-                    help="Output HTML path. Default: <jsonl_dir>/viewer.html")
+                    help="Output HTML path. Default: <jsonl_dir>/viewer.html (rtm) or viewer_tc.html (tc)")
+    ap.add_argument("--type", choices=("rtm", "tc"), default="rtm",
+                    help="Which viewer to render: 'rtm' (test_suite_reviewer, default) or 'tc' (test_case_reviewer)")
     args = ap.parse_args(argv)
 
+    writer = write_viewer if args.type == "rtm" else write_viewer_tc
     try:
-        out = write_viewer(args.jsonl_path, args.output)
+        out = writer(args.jsonl_path, args.output)
     except FileNotFoundError as e:
         print(f"error: {e} does not exist", file=sys.stderr)
         return 2

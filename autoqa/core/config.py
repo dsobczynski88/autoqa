@@ -5,11 +5,12 @@ from autoqa.utils import make_output_directory
 
 
 class PromptConfig(BaseModel):
-    """Jinja2 template filenames used by each LLM node in the RTM review graph."""
+    """Jinja2 template filenames used by each LLM node across reviewer graphs."""
     decomposer: str = "decomposer-v4.jinja2"
     summarizer: str = "summarizer-v2.jinja2"
     coverage: str = "coverage_evaluator-v5.jinja2"
     synthesizer: str = "synthesizer-v4.jinja2"
+    hazard_synthesizer: str = "hazard_synthesizer-v1.jinja2"
 
 
 class Settings(BaseSettings):

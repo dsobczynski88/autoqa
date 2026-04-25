@@ -7,6 +7,7 @@ load_dotenv()
 from autoqa.core.config import settings
 
 from autoqa.components.clients import RateLimitOpenAIClient
+from autoqa.components.hazard_risk_reviewer.core import HazardRecord
 from autoqa.components.test_suite_reviewer.core import (
     Requirement,
     TestCase,
@@ -133,3 +134,12 @@ def real_client():
 @pytest.fixture
 def real_model():
     return os.getenv("TEST_MODEL", "gpt-4o-mini")
+
+
+@pytest.fixture
+def sample_hazard():
+    """Load the canonical sample HazardRecord from tests/fixtures/sample_hazard.json."""
+    fixture_path = Path(__file__).parent / "fixtures" / "sample_hazard.json"
+    with fixture_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    return HazardRecord.model_validate(data)
