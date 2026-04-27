@@ -1,14 +1,26 @@
-# AutoQA — AI-Powered RTM Reviewer for Medical Device Software
+# AutoQA — AI-Powered DHF Reviewer for Medical Device Software
 
 ## Background
 
-AutoQA is a software quality tool designed to assist QA engineers and regulatory teams in reviewing Requirements Traceability Matrix (RTM) artifacts for medical device software. Medical device software developed under FDA guidance and the IEC 62304 lifecycle standard must demonstrate that every software requirement is adequately verified by a corresponding test case. In practice, this is a labor-intensive review process prone to coverage gaps, inconsistent rationale, and missed edge cases. AutoQA automates the analytical layer of that review by accepting a software requirement alongside its associated test suite and producing a **binary Yes/No coverage verdict** backed by a five-item mandatory rubric (M1 Functional, M2 Negative, M3 Boundary, M4 Spec Coverage, M5 Terminology), each finding citing the specific test cases or uncovered specs that support it, along with targeted clarification questions for the reviewer.
+AutoQA is a software quality tool designed to assist QA engineers and regulatory teams in reviewing Design History File artifacts for medical device software developed under FDA guidance and the IEC 62304 / ISO 14971 lifecycle standards. These reviews must demonstrate that every software requirement is adequately verified by a corresponding test case, that each test case is itself well-formed, and that hazards in the risk register are mitigated by traceable controls. In practice, they are labor-intensive processes prone to coverage gaps, inconsistent rationale, and missed edge cases.
+
+AutoQA exposes three complementary reviewers, each implemented as an independent LangGraph pipeline that emits a structured, SoP-gating rubric:
+
+| Reviewer | What it scores | Output rubric |
+|----------|----------------|---------------|
+| **Test Suite Reviewer (RTM)** — `/api/v1/review` | One requirement against its associated test suite | M1-M5 mandatory findings (Functional / Negative / Boundary / Spec Coverage / Terminology) → binary Yes/No coverage verdict |
+| **Hazard Coverage Reviewer** — `/api/v1/hazard-review` | One hazard register entry against its traced requirements + test cases + design docs | H1-H5 mandatory findings (Hazard Statement Completeness / Pre-Mitigation Risk / Risk Control Adequacy / Verification Depth / Residual Risk Closure) → Adequate / Partial / Inadequate verdict |
+| **Single Test Case Reviewer** — library only (`autoqa.components.test_case_reviewer`) | One test case against its requirements and a checklist of review objectives | Per-objective Yes/No verdicts (with a `partial` flag for material gaps) → binary Yes/No overall verdict |
+
+All three reviewers cite the artifact IDs that support each finding, return short comments clarifying any gaps, and emit closed-ended clarification questions so reviewers can quickly confirm whether flagged gaps are real or N/A in context.
 
 ---
 
 ## Pipeline Architecture
 
-AutoQA uses a five-node LangGraph pipeline. Nodes run with maximum parallelism: the decomposer and summarizer execute concurrently from `START`, and each decomposed specification is evaluated by a dedicated evaluator node running in parallel via LangGraph's `Send` API.
+Every reviewer is a LangGraph `StateGraph` that fans out via the `Send` API for maximum parallelism, then fans back in via `operator.add` reducers before a synthesizer node aggregates findings against the rubric. Each run also writes a Mermaid graph PNG (`graph.png`, `hazard_graph.png`, or `tc_graph.png`) into the run's log folder alongside `autoqa.log`.
+
+### Test Suite Reviewer (RTM coverage)
 
 ```
 START
@@ -33,9 +45,52 @@ START
 END
 ```
 
-Each pipeline run also writes a Mermaid graph diagram (`graph.png`) to the run's log folder alongside `autoqa.log`.
+### Hazard Coverage Reviewer
 
-### Output fields
+The hazard pipeline reuses the test suite reviewer as an atomic subgraph: each requirement traced from a `HazardRecord` is reviewed in parallel by invoking the full RTM graph for that requirement, then a hazard-level synthesizer rolls all M1-M5 findings up into the H1-H5 rubric.
+
+```
+START
+  ↓ dispatch_requirement_reviews → Send × N
+┌──────────────────────────────────────┐
+│ REQUIREMENT_REVIEWER × N (parallel)  │  ← each invokes the entire RTM subgraph
+└──────────────────────────────────────┘
+  ↓ (fan-in: operator.add accumulates requirement_reviews)
+┌──────────────────────────────────────┐
+│ HAZARD_SYNTHESIZER  (H1-H5 rubric)   │
+└──────────────────────────────────────┘
+  ↓
+END
+```
+
+### Single Test Case Reviewer
+
+A test case plus its traced requirements and a review-objectives checklist enter at `START`. The decomposer splits each requirement into atomic specs; a no-op `coverage_router` then fans out **three independent waves of Sends** — one per review axis (coverage / logical / prereqs) — to per-spec evaluators that run in parallel. The aggregator synthesizes the three accumulated `SpecAnalysis` lists into a single `TestCaseAssessment` with the review-objectives checklist populated.
+
+```
+START
+  ↓
+┌──────────────────────────────────────┐
+│ DECOMPOSER (sequential per req)      │
+└──────────────────────────────────────┘
+  ↓
+┌──────────────────────────────────────┐
+│ COVERAGE_ROUTER (sync point)         │
+└──────────────────────────────────────┘
+  ↓ 3× Send × N (parallel waves per axis)
+┌─────────────┬─────────────┬──────────┐
+│ COVERAGE    │ LOGICAL     │ PREREQS  │
+│ EVAL × N    │ EVAL × N    │ EVAL × N │
+└─────────────┴─────────────┴──────────┘
+  ↓ (operator.add reducers fan in per axis)
+┌──────────────────────────────────────┐
+│ AGGREGATOR  (MoA-like synthesis)     │
+└──────────────────────────────────────┘
+  ↓
+END
+```
+
+### Test Suite Reviewer output fields
 
 | Field | Description |
 |-------|-------------|
@@ -45,6 +100,25 @@ Each pipeline run also writes a Mermaid graph diagram (`graph.png`) to the run's
 | `synthesized_assessment` | SoP-gating rubric: `overall_verdict` (`Yes`/`No`), `mandatory_findings` (exactly five items M1–M5 with Yes/No/N-A verdicts, cited TC IDs, and uncovered spec IDs), short `comments` clarifying gaps, and a list of `clarification_questions` that the reviewer can answer to confirm whether identified gaps are real or N/A in context |
 
 The `overall_verdict` aggregates deterministically: it is `Yes` only when every mandatory finding is `Yes` or `N-A`; any single `No` flips it to `No`. `N-A` is permitted only on M2 (Negative) and M3 (Boundary) when the requirement has no validation surface or no threshold/limit surface respectively.
+
+### Hazard Coverage Reviewer output fields
+
+| Field | Description |
+|-------|-------------|
+| `requirement_reviews` | One `RequirementReview` per requirement traced from the `HazardRecord`, each carrying the M1-M5 `synthesized_assessment` plus the RTM byproducts (`decomposed_requirement`, `test_suite`, `coverage_analysis`) — the full evidence chain that drove the hazard verdict |
+| `hazard_assessment.mandatory_findings` | Exactly five items in order — H1 Hazard Statement Completeness, H2 Pre-Mitigation Risk, H3 Risk Control Adequacy, H4 Verification Depth, H5 Residual Risk Closure — each with an `Adequate` / `Partial` / `Inadequate` (or `N-A` on H4 only) verdict, cited `req_id`s and `test_id`s, and `unblocked_items` (sequence-of-events steps without controlling requirements on H3, controls without verifying tests on H4) |
+| `hazard_assessment.overall_verdict` | `Adequate` iff every finding is `Adequate` or `N-A`; `Inadequate` if any is `Inadequate`; `Partial` otherwise |
+| `hazard_assessment.comments` / `clarification_questions` | Same shape as the RTM reviewer — short prose plus closed-ended questions to drive reviewer follow-up |
+
+### Single Test Case Reviewer output fields
+
+| Field | Description |
+|-------|-------------|
+| `decomposed_requirements` | Each traced requirement broken into atomic specs (same `DecomposedSpec` shape as the RTM reviewer) |
+| `coverage_analysis` / `logical_structure_analysis` / `prereqs_analysis` | Three parallel `SpecAnalysis` lists — one per axis — each entry: `{spec_id, exists (bool), assessment}` |
+| `aggregated_assessment.evaluated_checklist` | The input `review_objectives` checklist populated with `verdict` (`Yes`/`No`), a `partial` flag (drives Yellow rendering when verdict is `Yes` but coverage is materially incomplete), and an `assessment` rationale per item |
+| `aggregated_assessment.overall_verdict` | `Yes` iff every objective is `Yes`; partial-Yes still counts as `Yes` |
+| `aggregated_assessment.comments` / `clarification_questions` | Same shape as the other reviewers |
 
 ---
 
@@ -95,6 +169,9 @@ uv run pytest tests/integration/test_pipeline.py::test_pipeline_parametrized -m 
 uv run pytest tests/integration/test_pipeline.py::test_pipeline_parametrized_standard_coverage -m integration -s
 
 uv run pytest tests/integration/test_pipeline.py::test_pipeline_parametrized_advanced_coverage -m integration -s
+
+# Hazard coverage reviewer pipeline (uses tests/fixtures/sample_hazard.json)
+uv run pytest tests/integration/test_hazard_pipeline.py -m integration -s
 ```
 
 The unit test suite covers all pipeline nodes with both plain-JSON and markdown-wrapped LLM response variants. JSONL fixture files in `tests/fixtures/` make it easy to add new test scenarios — append a line to the relevant file and it is automatically picked up by `@pytest.mark.parametrize`.
@@ -170,15 +247,20 @@ autoqa/viewer/
 uv run uvicorn autoqa.api.main:app --reload
 ```
 
-The interactive API documentation is available at `http://localhost:8000/docs` once the server is running.
+The interactive API documentation is available at `http://localhost:8000/docs` once the server is running. At startup the lifespan handler builds a single shared `RTMReviewerRunnable` and reuses it inside the hazard pipeline's `RequirementReviewerNode`, so the RTM graph compiles and renders `graph.png` only once per process even though both endpoints exercise it.
 
 ### Endpoint Reference
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/v1/review` | Submit a requirement and test suite for RTM coverage analysis |
+| `POST` | `/api/v1/review` | Submit a requirement + test suite for RTM coverage analysis (M1-M5 rubric) |
+| `POST` | `/api/v1/hazard-review` | Submit a `HazardRecord` (hazard line item + traced requirements / test cases / design docs) for hazard mitigation coverage analysis (H1-H5 rubric) |
 
-### Quickstart: curl
+---
+
+### Test Suite Reviewer — `/api/v1/review`
+
+#### Quickstart: curl
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/review \
@@ -253,7 +335,7 @@ curl -X POST http://localhost:8000/api/v1/review \
 }
 ```
 
-### Quickstart: Python
+#### Quickstart: Python
 
 ```python
 import asyncio
@@ -302,6 +384,165 @@ async def main():
 
 asyncio.run(main())
 ```
+
+---
+
+### Hazard Coverage Reviewer — `/api/v1/hazard-review`
+
+The endpoint accepts a single `HazardRecord` carrying the hazard register fields (per ISO 14971 / IEC 62304) plus the requirements, test cases, and design docs traced to that hazard. The pipeline fans out one parallel RTM review per traced requirement, then applies the H1-H5 rubric across the full hazard envelope. A complete sample input is at `tests/fixtures/sample_hazard.json`.
+
+#### Quickstart: curl
+
+```bash
+curl -X POST http://localhost:8000/api/v1/hazard-review \
+  -H "Content-Type: application/json" \
+  -d @tests/fixtures/sample_hazard_request.json
+```
+
+where `sample_hazard_request.json` wraps the fixture with a `thread_id`:
+
+```json
+{
+  "thread_id": "hazard-session-001",
+  "hazard": {
+    "hazard_id": "HAZ-PUMP-001",
+    "hazardous_situation_id": "HS-PUMP-001",
+    "hazard": "Over-infusion of medication due to software loop hang",
+    "hazardous_situation": "Patient receives medication at the maximum pump rate continuously...",
+    "function": "Continuous infusion rate control loop",
+    "ots_software": "FreeRTOS 10.4.3",
+    "hazardous_sequence_of_events": "1. Periodic timer ISR fails to fire... 2. Rate-control loop continues...",
+    "software_related_causes": "Scheduler stall under heavy task load; missing independent watchdog...",
+    "harm_severity_rationale": "External risk controls reduce but do not eliminate...",
+    "harm": "Severe over-infusion with potential for life-threatening overdose",
+    "severity": "Catastrophic",
+    "exploitability_pre_mitigation": "Not applicable",
+    "probability_of_harm_pre_mitigation": "Probable",
+    "initial_risk_rating": "Unacceptable",
+    "risk_control_measures": "REQ-PUMP-101 mandates an independent hardware watchdog...",
+    "demonstration_of_effectiveness": "Verified by TC-PUMP-201, TC-PUMP-202, TC-PUMP-203.",
+    "severity_of_harm_post_mitigation": "Catastrophic",
+    "exploitability_post_mitigation": "Not applicable",
+    "probability_of_harm_post_mitigation": "Remote",
+    "final_risk_rating": "Acceptable",
+    "new_hs_reference": "",
+    "sw_fmea_trace": "FMEA-PUMP-RC-001",
+    "sra_link": "SRA-PUMP-2025-12",
+    "urra_item": "URRA-PUMP-RC-001",
+    "residual_risk_acceptability": "Per GQP-10-02 Risk Management Report, residual risk is acceptable...",
+    "requirements": [
+      {"req_id": "REQ-PUMP-101", "text": "The rate-control loop shall be monitored by an independent hardware watchdog..."},
+      {"req_id": "REQ-PUMP-102", "text": "The UI thread shall render an Alarm Mode banner..."}
+    ],
+    "test_cases": [
+      {"test_id": "TC-PUMP-201", "description": "Functional verification of watchdog heartbeat...", "setup": "...", "steps": "...", "expectedResults": "..."},
+      {"test_id": "TC-PUMP-202", "description": "Fault injection — simulate scheduler stall...", "setup": "...", "steps": "...", "expectedResults": "..."},
+      {"test_id": "TC-PUMP-203", "description": "Boundary — heartbeat latency at 200 ms threshold...", "setup": "...", "steps": "...", "expectedResults": "..."}
+    ],
+    "design_docs": [
+      {"doc_id": "DD-PUMP-RC-001", "name": "Rate Control Loop and Watchdog Architecture", "description": "..."}
+    ]
+  }
+}
+```
+
+#### Quickstart: Python
+
+```python
+import asyncio
+import json
+from pathlib import Path
+
+import httpx
+
+hazard = json.loads(Path("tests/fixtures/sample_hazard.json").read_text())
+payload = {"thread_id": "hazard-session-001", "hazard": hazard}
+
+async def main():
+    async with httpx.AsyncClient(timeout=300) as client:
+        response = await client.post(
+            "http://localhost:8000/api/v1/hazard-review",
+            json=payload,
+        )
+        result = response.json()
+
+    assessment = result.get("hazard_assessment") or {}
+    print(f"Hazard {assessment.get('hazard_id')}: {assessment.get('overall_verdict')}")
+    for f in assessment.get("mandatory_findings", []):
+        print(f"  [{f['code']} {f['dimension']}] {f['verdict']} — {f['rationale']}")
+        if f.get("cited_req_ids"):
+            print(f"      cited reqs:  {f['cited_req_ids']}")
+        if f.get("cited_test_case_ids"):
+            print(f"      cited tests: {f['cited_test_case_ids']}")
+        if f.get("unblocked_items"):
+            print(f"      unblocked:   {f['unblocked_items']}")
+
+    # Drill into each per-requirement RTM assessment that fed the H1-H5 roll-up
+    for review in result.get("requirement_reviews", []):
+        sa = review.get("synthesized_assessment") or {}
+        print(f"\n  {review['requirement']['req_id']}: {sa.get('overall_verdict')}")
+        for mf in sa.get("mandatory_findings", []):
+            print(f"    [{mf['code']}] {mf['verdict']} — {mf['rationale']}")
+
+asyncio.run(main())
+```
+
+H4 (Verification Depth) is the only finding that may be `N-A` — it applies when `software_related_causes` indicates no software cause, in which case test-case verification is not required for that hazard. H1, H2, H3, and H5 must always resolve to `Adequate`, `Partial`, or `Inadequate`.
+
+---
+
+### Single Test Case Reviewer — library API
+
+The single-test-case reviewer is currently library-only (no HTTP endpoint). Construct a `TCReviewerRunnable` directly and invoke its compiled graph. The default review-objectives checklist lives at `autoqa/components/test_case_reviewer/review_objectives.yaml`; load it with `load_default_review_objectives()` or substitute your own list of `ReviewObjective` rows.
+
+```python
+import asyncio
+
+from autoqa.components.clients import RateLimitOpenAIClient
+from autoqa.components.shared.core import Requirement, TestCase
+from autoqa.components.test_case_reviewer.nodes import load_default_review_objectives
+from autoqa.components.test_case_reviewer.pipeline import TCReviewerRunnable
+from autoqa.core.config import settings
+
+
+async def main():
+    client = RateLimitOpenAIClient(api_key=settings.openai_api_key)
+    runnable = TCReviewerRunnable(client=client, model=settings.model)
+
+    test_case = TestCase(
+        test_id="TC-101",
+        description="Verify high-glucose alarm activation",
+        setup="Device powered on, high threshold set to 180 mg/dL",
+        steps="Simulate glucose reading of 200 mg/dL via test fixture",
+        expectedResults="Audible alarm sounds and alert banner displayed within 5 seconds",
+    )
+    requirements = [
+        Requirement(
+            req_id="SRS-042",
+            text="The system shall generate an audible and visual alarm within 5 seconds when the measured glucose concentration exceeds the user-configured high threshold.",
+        )
+    ]
+
+    result = await runnable.graph.ainvoke({
+        "test_case": test_case,
+        "requirements": requirements,
+        "review_objectives": load_default_review_objectives(),
+    })
+
+    assessment = result.get("aggregated_assessment")
+    print(f"Overall verdict: {assessment.overall_verdict}")
+    for item in assessment.evaluated_checklist:
+        partial = " (partial)" if item.partial else ""
+        print(f"  [{item.id}] {item.verdict}{partial} — {item.assessment}")
+    if assessment.comments:
+        print(f"\nComments: {assessment.comments}")
+    for q in assessment.clarification_questions:
+        print(f"  ? {q}")
+
+asyncio.run(main())
+```
+
+The pipeline emits three independent `SpecAnalysis` lists on the final state — `coverage_analysis`, `logical_structure_analysis`, and `prereqs_analysis` — which the aggregator collapses into the populated `evaluated_checklist`. Inspect the per-axis lists directly when you need to see why the aggregator settled on a given verdict.
 
 ---
 

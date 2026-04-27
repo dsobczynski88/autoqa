@@ -278,7 +278,7 @@ def make_synthesizer_node(
     client: RateLimitOpenAIClient,
     model: str,
     model_kwargs: dict,
-    prompt_template: str = "synthesizer-v5.jinja2",
+    prompt_template: str = "synthesizer-v6.jinja2",
     **template_vars,
 ) -> SynthesizerNode:
     """

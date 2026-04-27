@@ -12,6 +12,32 @@ from tests.helpers import load_jsonl, serialize_state
 PIPELINE_INPUTS = load_jsonl("gold_dataset.jsonl")
 
 
+def _assert_partial_invariants(sa: SynthesizedAssessment) -> None:
+    findings = sa.mandatory_findings
+    assert len(findings) == 5, f"expected 5 mandatory findings, got {len(findings)}"
+    assert [f.code for f in findings] == ["M1", "M2", "M3", "M4", "M5"]
+
+    for f in findings:
+        if f.verdict in ("No", "N-A"):
+            assert f.partial is False, (
+                f"{f.code}: partial must be False when verdict={f.verdict!r}, got True"
+            )
+        if f.partial:
+            assert f.verdict == "Yes", (
+                f"{f.code}: partial=True requires verdict='Yes', got {f.verdict!r}"
+            )
+
+    expected_overall = (
+        "Yes" if all(f.verdict in ("Yes", "N-A") for f in findings) else "No"
+    )
+    assert sa.overall_verdict == expected_overall, (
+        f"overall_verdict={sa.overall_verdict!r} disagrees with aggregation rule "
+        f"(expected {expected_overall!r}); partial-Yes findings must NOT flip to No. "
+        f"verdicts={[f.verdict for f in findings]}, "
+        f"partials={[f.partial for f in findings]}"
+    )
+
+
 @pytest.mark.integration
 async def test_pipeline_decomposer_node(real_client, real_model, sample_requirement, sample_test_cases):
     """Run the full pipeline and verify the decomposer produced structured output."""
@@ -108,6 +134,7 @@ async def test_pipeline_parametrized(real_client, real_model, pipeline_input, js
     assert len(evals) > 0
     assert all(isinstance(e, EvaluatedSpec) for e in evals)
     assert isinstance(result.get("synthesized_assessment"), SynthesizedAssessment)
+    _assert_partial_invariants(result["synthesized_assessment"])
 
     record_output(serialize_state(result))
 
@@ -130,10 +157,10 @@ async def test_pipeline_parametrized_standard_coverage(
     test_cases = [TestCase(**tc) for tc in pipeline_input["test_cases"]]
 
     custom = PromptConfig(
-        decomposer="decomposer-v3.jinja2",
+        decomposer="decomposer-v4.jinja2",
         summarizer="summarizer-v2.jinja2",
-        coverage="coverage_evaluator-v4.jinja2",
-        synthesizer="synthesizer-v3.jinja2",
+        coverage="coverage_evaluator-v6.jinja2",
+        synthesizer="synthesizer-v6.jinja2",
     )
     graph = RTMReviewerRunnable(
         client=real_client, model=real_model, prompt_config=custom
@@ -148,6 +175,7 @@ async def test_pipeline_parametrized_standard_coverage(
     assert len(evals) > 0
     assert all(isinstance(e, EvaluatedSpec) for e in evals)
     assert isinstance(result.get("synthesized_assessment"), SynthesizedAssessment)
+    _assert_partial_invariants(result["synthesized_assessment"])
 
     record_output(serialize_state(result))
 
@@ -188,5 +216,6 @@ async def test_pipeline_parametrized_advanced_coverage(
     assert len(evals) > 0
     assert all(isinstance(e, EvaluatedSpec) for e in evals)
     assert isinstance(result.get("synthesized_assessment"), SynthesizedAssessment)
+    _assert_partial_invariants(result["synthesized_assessment"])
 
     record_output(serialize_state(result))

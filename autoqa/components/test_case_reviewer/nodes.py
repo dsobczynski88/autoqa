@@ -202,7 +202,7 @@ def make_coverage_single_node(
     client: RateLimitOpenAIClient,
     model: str,
     model_kwargs: dict,
-    prompt_template: str = "single-test-coverage-eval.jinja2",
+    prompt_template: str = "single-test-coverage-eval-v2.jinja2",
     **template_vars,
 ) -> SingleSpecCoverageNode:
     return _make_axis_node(
@@ -214,7 +214,7 @@ def make_logical_single_node(
     client: RateLimitOpenAIClient,
     model: str,
     model_kwargs: dict,
-    prompt_template: str = "single-test-logical-steps.jinja2",
+    prompt_template: str = "single-test-logical-steps-v2.jinja2",
     **template_vars,
 ) -> SingleSpecLogicalNode:
     return _make_axis_node(
@@ -226,7 +226,7 @@ def make_prereqs_single_node(
     client: RateLimitOpenAIClient,
     model: str,
     model_kwargs: dict,
-    prompt_template: str = "single-test-prereqs.jinja2",
+    prompt_template: str = "single-test-prereqs-v2.jinja2",
     **template_vars,
 ) -> SingleSpecPrereqsNode:
     return _make_axis_node(
@@ -311,7 +311,7 @@ def make_aggregator_node(
     client: RateLimitOpenAIClient,
     model: str,
     model_kwargs: dict,
-    prompt_template: str = "single-test-aggregator.jinja2",
+    prompt_template: str = "single-test-aggregator-v3.jinja2",
     **template_vars,
 ) -> AggregatorNode:
     system_prompt = render_prompt(prompt_template, **template_vars)

@@ -4,7 +4,11 @@
       "Bash(uv run *)",
       "Bash(xargs grep *)",
       "Bash(uv pip *)",
-      "Bash(python3 -m json.tool)"
+      "Bash(python3 -m json.tool)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(git log *)",
+      "Bash(python -m json.tool)",
+      "Bash(grep -aE \"validation error for TestCaseAssessment|^\\\\s+[a-z_]+\\\\s*$|Input should be|missing|extra\" logs/run-2026-04-27-11-13-22/autoqa.log)"
     ]
   }
 }

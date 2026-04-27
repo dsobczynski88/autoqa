@@ -123,6 +123,37 @@ def jsonl_recorders():
             print(f"\n[viewer] wrote {out}")
 
 
+@pytest.fixture(scope="session")
+def jsonl_recorders_tc():
+    """TC-flavored counterpart to jsonl_recorders: same inputs.jsonl/outputs.jsonl
+    contract, but renders the test-case viewer (viewer_tc.html) at session teardown
+    via write_viewer_tc instead of the RTM write_viewer."""
+    run_dir = Path(settings.log_file_path).parent
+    inputs_path = run_dir / "inputs.jsonl"
+    outputs_path = run_dir / "outputs.jsonl"
+    inputs_path.write_text("", encoding="utf-8")
+    outputs_path.write_text("", encoding="utf-8")
+
+    def record_input(data: dict) -> None:
+        with inputs_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(data) + "\n")
+
+    def record_output(data: dict) -> None:
+        with outputs_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(data) + "\n")
+
+    yield record_input, record_output
+
+    try:
+        from autoqa.viewer.generator import write_viewer_tc
+        out = write_viewer_tc(outputs_path)
+    except Exception as exc:
+        print(f"\n[viewer_tc] skipped: {exc}")
+    else:
+        if out is not None:
+            print(f"\n[viewer_tc] wrote {out}")
+
+
 @pytest.fixture
 def real_client():
     api_key = os.getenv("OPENAI_API_KEY")

@@ -206,7 +206,8 @@ function renderLeft() {
     <div class="verdict-row">
       <span>Overall verdict:</span>
       <span class="verdict-badge verdict-${overallClass}">${escapeHTML(overallVerdict)}</span>
-      <span class="link-like" onclick="openAxes()">Decomposed specs &amp; 3-axis analysis →</span>
+      <span class="link-like" onclick="openChecklist()">Checklist drilldown →</span>
+      <span class="link-like" onclick="openAxes()">Spec axes →</span>
     </div>
     <table class="findings">
       <thead><tr><th>Objective <span class="help-icon" onclick="openCriteriaHelp()" title="What do these objectives mean?">?</span></th><th>Verdict</th><th>Assessment</th></tr></thead>
@@ -239,6 +240,50 @@ function openModal(bodyHTML) {
   document.getElementById("modal").classList.add("open");
 }
 function closeModal() { document.getElementById("modal").classList.remove("open"); }
+
+function openChecklist() {
+  const rec = RECORDS[idx];
+  const ag = rec.aggregated_assessment ?? {};
+  const checklist = ag.evaluated_checklist ?? [];
+  const overallVerdict = ag.overall_verdict ?? "?";
+  const overallPartial = (overallVerdict === "Yes") && checklist.some(o => o.partial);
+  const overallClass = overallPartial ? "Yellow" : overallVerdict;
+  const noCount = checklist.filter(o => o.verdict === "No").length;
+  const partialCount = checklist.filter(o => o.verdict === "Yes" && o.partial).length;
+
+  const rows = checklist.map(o => {
+    const chipClass = (o.verdict === "Yes" && o.partial) ? "Yellow" : o.verdict;
+    const partialTag = (o.verdict === "Yes" && o.partial)
+      ? `<span class="chip chip-Yellow" style="font-size:11px;margin-left:6px">partial</span>`
+      : "";
+    return `<tr>
+      <td><strong>${escapeHTML(o.id)}</strong><div class="obj-desc">${escapeHTML(o.description)}</div></td>
+      <td><span class="chip chip-${chipClass}">${escapeHTML(o.verdict ?? "?")}</span>${partialTag}</td>
+      <td>${escapeHTML(o.assessment ?? "")}</td>
+    </tr>`;
+  }).join("");
+
+  const rollupExplain = noCount > 0
+    ? `${noCount} objective(s) failed → <code>overall_verdict = "No"</code>.`
+    : `All objectives Yes${partialCount ? ` (with ${partialCount} partial)` : ""} → <code>overall_verdict = "Yes"</code>.`;
+
+  openModal(`
+    <h3>Checklist drilldown — what drives <code>overall_verdict</code></h3>
+    <p style="font-size:13px;color:var(--mute);margin-top:0">
+      <code>overall_verdict</code> is a deterministic AND across the 5 review objectives:
+      Yes iff every row's verdict is Yes; any single No flips it. Partial-Yes still passes.
+    </p>
+    <table class="findings">
+      <thead><tr><th>Objective</th><th>Verdict</th><th>Assessment</th></tr></thead>
+      <tbody>${rows || "<tr><td colspan=\"3\"><em>(no checklist populated)</em></td></tr>"}</tbody>
+    </table>
+    <div class="verdict-row" style="margin-top:14px">
+      <span>Result:</span>
+      <span class="verdict-badge verdict-${overallClass}">${escapeHTML(overallVerdict)}</span>
+      <span style="font-size:13px;color:var(--mute)">${rollupExplain}</span>
+    </div>
+  `);
+}
 
 function openAxes() {
   const rec = RECORDS[idx];

@@ -15,9 +15,21 @@ shapes:
   SynthesizedAssessment with overall_verdict / comments / clarification_questions.
 - TCReviewState — the LangGraph TypedDict that threads everything.
 """
-from pydantic import BaseModel, Field
-from typing import Optional, List, Literal, TypedDict, Annotated
+from pydantic import BaseModel, Field, model_validator
+from typing import Any, Optional, List, Literal, TypedDict, Annotated
 import operator
+
+
+_PARTIAL_VERDICT_ALIASES = {"partial", "yes-partial", "yes (partial)", "yes-with-partial"}
+
+
+def _coerce_partial_verdict(verdict: Any) -> tuple[Any, bool]:
+    """Return (canonical_verdict, partial_flag) when the input matches a 'Partial'
+    alias the LLM tends to emit instead of (verdict='Yes', partial=True). Returns
+    the verdict unchanged with partial_flag=False when no coercion applies."""
+    if isinstance(verdict, str) and verdict.strip().lower() in _PARTIAL_VERDICT_ALIASES:
+        return "Yes", True
+    return verdict, False
 
 from autoqa.components.shared.core import (
     Requirement,
@@ -72,6 +84,16 @@ class EvaluatedReviewObjective(ReviewObjective):
     )
     assessment: str = Field(default="", description="Aggregator's rationale for the verdict.")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_partial_alias(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            verdict, was_partial = _coerce_partial_verdict(data.get("verdict"))
+            if was_partial:
+                data["verdict"] = verdict
+                data["partial"] = True
+        return data
+
 
 class SpecAnalysis(BaseModel):
     """Per-spec verdict emitted by each axis evaluator (coverage / logical / prereqs)."""
@@ -110,6 +132,15 @@ class TestCaseAssessment(BaseModel):
             "context. Empty list ⇒ N/A (no questions needed)."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_overall_partial_alias(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            verdict, was_partial = _coerce_partial_verdict(data.get("overall_verdict"))
+            if was_partial:
+                data["overall_verdict"] = verdict
+        return data
 
 
 class TCReviewState(TypedDict, total=False):

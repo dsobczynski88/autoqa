@@ -9,7 +9,7 @@ class PromptConfig(BaseModel):
     decomposer: str = "decomposer-v4.jinja2"
     summarizer: str = "summarizer-v2.jinja2"
     coverage: str = "coverage_evaluator-v5.jinja2"
-    synthesizer: str = "synthesizer-v4.jinja2"
+    synthesizer: str = "synthesizer-v6.jinja2"
     hazard_synthesizer: str = "hazard_synthesizer-v1.jinja2"
 
 
