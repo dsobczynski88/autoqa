@@ -1,4 +1,6 @@
+import asyncio
 import json
+import os
 import pytest
 from pathlib import Path
 from autoqa.core.config import settings, PromptConfig
@@ -10,6 +12,11 @@ from autoqa.components.test_suite_reviewer.core import (
 from tests.helpers import load_jsonl, serialize_state
 
 PIPELINE_INPUTS = load_jsonl("gold_dataset.jsonl")
+
+# Cap on rows in flight at once. Tunable via AUTOQA_FANOUT_CONCURRENCY env var
+# for bisection. The RateLimitOpenAIClient already enforces RPM/TPM ceilings
+# internally, so this semaphore is a soft cap to bound memory and tail latency.
+MAX_CONCURRENT = int(os.getenv("AUTOQA_FANOUT_CONCURRENCY", "10"))
 
 
 def _assert_partial_invariants(sa: SynthesizedAssessment) -> None:
@@ -36,6 +43,80 @@ def _assert_partial_invariants(sa: SynthesizedAssessment) -> None:
         f"verdicts={[f.verdict for f in findings]}, "
         f"partials={[f.partial for f in findings]}"
     )
+
+
+async def _fanout_pipeline(
+    real_client,
+    real_model,
+    jsonl_recorders,
+    *,
+    prompt_config: PromptConfig | None = None,
+) -> None:
+    """Shared fan-out body for the three RTM-pipeline batch tests.
+
+    Builds the LangGraph runnable ONCE (graph compilation is non-trivial),
+    dispatches every row in PIPELINE_INPUTS via `asyncio.gather` capped at
+    MAX_CONCURRENT in-flight, re-orders results to input order, writes
+    inputs/outputs to the JSONL fixture in input-order alignment, then
+    accumulates per-row assertion failures into a single pytest.fail summary.
+
+    Optionally accepts a PromptConfig override for prompt-version comparison
+    runs (mirrors the prior _standard_coverage / _advanced_coverage variants).
+    """
+    record_input, record_output = jsonl_recorders
+    if prompt_config is None:
+        graph = RTMReviewerRunnable(client=real_client, model=real_model)
+    else:
+        graph = RTMReviewerRunnable(
+            client=real_client, model=real_model, prompt_config=prompt_config
+        )
+    sem = asyncio.Semaphore(MAX_CONCURRENT)
+
+    async def run_one(idx: int, row: dict):
+        async with sem:
+            requirement = Requirement(**row["requirement"])
+            test_cases = [TestCase(**tc) for tc in row["test_cases"]]
+            return idx, row, await graph.graph.ainvoke(
+                {"requirement": requirement, "test_cases": test_cases}
+            )
+
+    completed = await asyncio.gather(
+        *(run_one(i, row) for i, row in enumerate(PIPELINE_INPUTS)),
+        return_exceptions=True,
+    )
+
+    # Re-align to input order so outputs.jsonl[i] still corresponds to PIPELINE_INPUTS[i]
+    completed_sorted = sorted(
+        [c for c in completed if not isinstance(c, Exception)],
+        key=lambda c: c[0],
+    )
+    exception_failures = [c for c in completed if isinstance(c, Exception)]
+
+    for _idx, row, result in completed_sorted:
+        record_input(row)
+        record_output(serialize_state(result))
+
+    fail_msgs = []
+    for _idx, row, result in completed_sorted:
+        try:
+            assert isinstance(result.get("decomposed_requirement"), DecomposedRequirement)
+            assert isinstance(result.get("test_suite"), TestSuite)
+            evals = result.get("coverage_analysis", [])
+            assert len(evals) > 0
+            assert all(isinstance(e, EvaluatedSpec) for e in evals)
+            assert isinstance(result.get("synthesized_assessment"), SynthesizedAssessment)
+            _assert_partial_invariants(result["synthesized_assessment"])
+        except AssertionError as e:
+            fail_msgs.append(f"  {row['requirement']['req_id']}: {e}")
+
+    if exception_failures or fail_msgs:
+        n = len(exception_failures) + len(fail_msgs)
+        msg = f"{n}/{len(PIPELINE_INPUTS)} rows failed"
+        if fail_msgs:
+            msg += "\nassertion-failures:\n" + "\n".join(fail_msgs)
+        if exception_failures:
+            msg += "\nexceptions:\n" + "\n".join(f"  {e!r}" for e in exception_failures)
+        pytest.fail(msg)
 
 
 @pytest.mark.integration
@@ -108,114 +189,38 @@ async def test_pipeline_full_state(real_client, real_model, sample_requirement, 
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    "pipeline_input",
-    PIPELINE_INPUTS,
-    ids=[r["requirement"]["req_id"] for r in PIPELINE_INPUTS],
-)
-async def test_pipeline_parametrized(real_client, real_model, pipeline_input, jsonl_recorders):
-    """Runs the full pipeline for each HC input record and records inputs/outputs to JSONL."""
-    record_input, record_output = jsonl_recorders
-
-    # Write full input record (including rationale) for traceability
-    record_input(pipeline_input)
-
-    requirement = Requirement(**pipeline_input["requirement"])
-    test_cases = [TestCase(**tc) for tc in pipeline_input["test_cases"]]
-
-    graph = RTMReviewerRunnable(client=real_client, model=real_model)
-    result: RTMReviewState = await graph.graph.ainvoke(
-        {"requirement": requirement, "test_cases": test_cases}
-    )
-
-    assert isinstance(result.get("decomposed_requirement"), DecomposedRequirement)
-    assert isinstance(result.get("test_suite"), TestSuite)
-    evals = result.get("coverage_analysis", [])
-    assert len(evals) > 0
-    assert all(isinstance(e, EvaluatedSpec) for e in evals)
-    assert isinstance(result.get("synthesized_assessment"), SynthesizedAssessment)
-    _assert_partial_invariants(result["synthesized_assessment"])
-
-    record_output(serialize_state(result))
+async def test_pipeline_parametrized_fanout(real_client, real_model, jsonl_recorders):
+    """Fan-out variant of the prior parametrized form. Uses asyncio.gather over
+    every row in gold_dataset.jsonl, capped at MAX_CONCURRENT in-flight via
+    asyncio.Semaphore. Default PromptConfig (settings.prompt_config)."""
+    await _fanout_pipeline(real_client, real_model, jsonl_recorders)
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    "pipeline_input",
-    PIPELINE_INPUTS,
-    ids=[r["requirement"]["req_id"] for r in PIPELINE_INPUTS],
-)
-async def test_pipeline_parametrized_standard_coverage(
-    real_client, real_model, pipeline_input, jsonl_recorders
+async def test_pipeline_parametrized_standard_coverage_fanout(
+    real_client, real_model, jsonl_recorders
 ):
-    """Runs the full pipeline with the 'standard coverage' PromptConfig override."""
-    record_input, record_output = jsonl_recorders
-
-    record_input(pipeline_input)
-
-    requirement = Requirement(**pipeline_input["requirement"])
-    test_cases = [TestCase(**tc) for tc in pipeline_input["test_cases"]]
-
+    """Fan-out variant pinning the 'standard coverage' prompt versions
+    (decomposer-v4, summarizer-v2, coverage_evaluator-v6, synthesizer-v6)."""
     custom = PromptConfig(
         decomposer="decomposer-v4.jinja2",
         summarizer="summarizer-v2.jinja2",
         coverage="coverage_evaluator-v6.jinja2",
         synthesizer="synthesizer-v6.jinja2",
     )
-    graph = RTMReviewerRunnable(
-        client=real_client, model=real_model, prompt_config=custom
-    )
-    result: RTMReviewState = await graph.graph.ainvoke(
-        {"requirement": requirement, "test_cases": test_cases}
-    )
-
-    assert isinstance(result.get("decomposed_requirement"), DecomposedRequirement)
-    assert isinstance(result.get("test_suite"), TestSuite)
-    evals = result.get("coverage_analysis", [])
-    assert len(evals) > 0
-    assert all(isinstance(e, EvaluatedSpec) for e in evals)
-    assert isinstance(result.get("synthesized_assessment"), SynthesizedAssessment)
-    _assert_partial_invariants(result["synthesized_assessment"])
-
-    record_output(serialize_state(result))
+    await _fanout_pipeline(real_client, real_model, jsonl_recorders, prompt_config=custom)
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    "pipeline_input",
-    PIPELINE_INPUTS,
-    ids=[r["requirement"]["req_id"] for r in PIPELINE_INPUTS],
-)
-async def test_pipeline_parametrized_advanced_coverage(
-    real_client, real_model, pipeline_input, jsonl_recorders
+async def test_pipeline_parametrized_advanced_coverage_fanout(
+    real_client, real_model, jsonl_recorders
 ):
-    """Runs the full pipeline with the 'advanced coverage' PromptConfig override."""
-    record_input, record_output = jsonl_recorders
-
-    record_input(pipeline_input)
-
-    requirement = Requirement(**pipeline_input["requirement"])
-    test_cases = [TestCase(**tc) for tc in pipeline_input["test_cases"]]
-
+    """Fan-out variant pinning the older 'advanced coverage' prompt versions
+    (decomposer-v3, summarizer-v2, coverage_evaluator-v4, synthesizer-v2)."""
     custom = PromptConfig(
         decomposer="decomposer-v3.jinja2",
         summarizer="summarizer-v2.jinja2",
         coverage="coverage_evaluator-v4.jinja2",
         synthesizer="synthesizer-v2.jinja2",
     )
-    graph = RTMReviewerRunnable(
-        client=real_client, model=real_model, prompt_config=custom
-    )
-    result: RTMReviewState = await graph.graph.ainvoke(
-        {"requirement": requirement, "test_cases": test_cases}
-    )
-
-    assert isinstance(result.get("decomposed_requirement"), DecomposedRequirement)
-    assert isinstance(result.get("test_suite"), TestSuite)
-    evals = result.get("coverage_analysis", [])
-    assert len(evals) > 0
-    assert all(isinstance(e, EvaluatedSpec) for e in evals)
-    assert isinstance(result.get("synthesized_assessment"), SynthesizedAssessment)
-    _assert_partial_invariants(result["synthesized_assessment"])
-
-    record_output(serialize_state(result))
+    await _fanout_pipeline(real_client, real_model, jsonl_recorders, prompt_config=custom)

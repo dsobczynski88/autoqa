@@ -14,18 +14,17 @@ from autoqa.components.test_case_reviewer import (
     AggregatorNode,
     DecomposedRequirement,
     DecomposedSpec,
+    OverallAnalysis,
+    OverallLogicalNode,
+    OverallPrereqsNode,
     Requirement,
     ReviewObjective,
     SingleSpecCoverageNode,
-    SingleSpecLogicalNode,
-    SingleSpecPrereqsNode,
     SpecAnalysis,
     TCDecomposerNode,
     TestCase,
     TestCaseAssessment,
     dispatch_coverage,
-    dispatch_logical,
-    dispatch_prereqs,
     load_default_review_objectives,
 )
 from autoqa.components.shared.nodes import DecomposerNode
@@ -140,16 +139,9 @@ _SPEC_ANALYSIS_RESPONSE = json.dumps({
 })
 
 
-@pytest.mark.parametrize(
-    "node_cls,output_key",
-    [
-        (SingleSpecCoverageNode, "coverage_analysis"),
-        (SingleSpecLogicalNode, "logical_structure_analysis"),
-        (SingleSpecPrereqsNode, "prereqs_analysis"),
-    ],
-)
-async def test_axis_node_returns_specanalysis(node_cls, output_key, tc_test_case, tc_requirement, tc_decomposed_spec):
-    node = node_cls(
+async def test_coverage_node_returns_specanalysis(tc_test_case, tc_requirement, tc_decomposed_spec):
+    """Coverage axis remains per-spec (Send fan-out target). One SpecAnalysis per call."""
+    node = SingleSpecCoverageNode(
         client=make_mock_client(_SPEC_ANALYSIS_RESPONSE),
         model="test-model",
         system_prompt="sys",
@@ -160,40 +152,24 @@ async def test_axis_node_returns_specanalysis(node_cls, output_key, tc_test_case
         "decomposed_spec": tc_decomposed_spec,
     }
     result = await node(state)
-    assert output_key in result
-    assert len(result[output_key]) == 1
-    assert isinstance(result[output_key][0], SpecAnalysis)
-    assert result[output_key][0].spec_id == "S-001"
+    assert "coverage_analysis" in result
+    assert len(result["coverage_analysis"]) == 1
+    assert isinstance(result["coverage_analysis"][0], SpecAnalysis)
+    assert result["coverage_analysis"][0].spec_id == "S-001"
 
 
-@pytest.mark.parametrize(
-    "node_cls,output_key",
-    [
-        (SingleSpecCoverageNode, "coverage_analysis"),
-        (SingleSpecLogicalNode, "logical_structure_analysis"),
-        (SingleSpecPrereqsNode, "prereqs_analysis"),
-    ],
-)
-async def test_axis_node_skip_on_missing_state(node_cls, output_key):
-    node = node_cls(
+async def test_coverage_node_skip_on_missing_state():
+    node = SingleSpecCoverageNode(
         client=make_mock_client(_SPEC_ANALYSIS_RESPONSE),
         model="test-model",
         system_prompt="sys",
     )
     result = await node({})
-    assert result == {output_key: []}
+    assert result == {"coverage_analysis": []}
 
 
-@pytest.mark.parametrize(
-    "node_cls,output_key",
-    [
-        (SingleSpecCoverageNode, "coverage_analysis"),
-        (SingleSpecLogicalNode, "logical_structure_analysis"),
-        (SingleSpecPrereqsNode, "prereqs_analysis"),
-    ],
-)
-async def test_axis_node_invalid_json_returns_empty(node_cls, output_key, tc_test_case, tc_requirement, tc_decomposed_spec):
-    node = node_cls(
+async def test_coverage_node_invalid_json_returns_empty(tc_test_case, tc_requirement, tc_decomposed_spec):
+    node = SingleSpecCoverageNode(
         client=make_mock_client("not json"),
         model="test-model",
         system_prompt="sys",
@@ -204,23 +180,75 @@ async def test_axis_node_invalid_json_returns_empty(node_cls, output_key, tc_tes
         "decomposed_spec": tc_decomposed_spec,
     }
     result = await node(state)
-    assert result == {output_key: []}
+    assert result == {"coverage_analysis": []}
 
 
 # ---------------------------------------------------------------------------
-# Dispatchers
+# Test-case-level axis evaluators (single LLM call each, no Send fan-out).
+# Logical-structure and prereqs are properties of the test case as a whole
+# from v3 onwards; they take the full TCReviewState and return a scalar
+# OverallAnalysis (not List[SpecAnalysis]).
 # ---------------------------------------------------------------------------
+
+
+_OVERALL_ANALYSIS_RESPONSE = json.dumps({
+    "exists": True,
+    "assessment": "Steps 1-2 establish the patient/dose preconditions, Step 3 sends the prescription, Step 4 inspects the modal — clean precondition → stimulus → verification.",
+})
 
 
 @pytest.mark.parametrize(
-    "dispatcher,target",
+    "node_cls,output_key",
     [
-        (dispatch_coverage, "coverage_evaluator"),
-        (dispatch_logical, "logical_evaluator"),
-        (dispatch_prereqs, "prereqs_evaluator"),
+        (OverallLogicalNode, "logical_structure_analysis"),
+        (OverallPrereqsNode, "prereqs_analysis"),
     ],
 )
-def test_dispatcher_emits_one_send_per_spec(dispatcher, target, tc_test_case, tc_decomposed_requirement, tc_requirement, tc_decomposed_spec):
+async def test_overall_axis_node_returns_overallanalysis(node_cls, output_key, tc_test_case, tc_requirement):
+    """OverallLogicalNode / OverallPrereqsNode take the full TCReviewState and
+    return a scalar OverallAnalysis (no spec_id field). Single LLM call per node,
+    no Send fan-out."""
+    node = node_cls(
+        client=make_mock_client(_OVERALL_ANALYSIS_RESPONSE),
+        model="test-model",
+        response_model=OverallAnalysis,
+        system_prompt="sys",
+    )
+    state = {
+        "test_case": tc_test_case,
+        "requirements": [tc_requirement],
+    }
+    result = await node(state)
+    assert output_key in result
+    assert isinstance(result[output_key], OverallAnalysis)
+    assert result[output_key].exists is True
+    assert "Step" in result[output_key].assessment
+
+
+@pytest.mark.parametrize(
+    "node_cls,output_key",
+    [
+        (OverallLogicalNode, "logical_structure_analysis"),
+        (OverallPrereqsNode, "prereqs_analysis"),
+    ],
+)
+async def test_overall_axis_node_skip_on_missing_state(node_cls, output_key):
+    node = node_cls(
+        client=make_mock_client(_OVERALL_ANALYSIS_RESPONSE),
+        model="test-model",
+        response_model=OverallAnalysis,
+        system_prompt="sys",
+    )
+    result = await node({})
+    assert result == {output_key: None}
+
+
+# ---------------------------------------------------------------------------
+# Dispatcher (only coverage fans out per spec from v3 onwards)
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_coverage_emits_one_send_per_spec(tc_test_case, tc_decomposed_requirement, tc_requirement, tc_decomposed_spec):
     second_dr = DecomposedRequirement(
         requirement=Requirement(req_id="REQ-002", text="Second req."),
         decomposed_specifications=[
@@ -232,10 +260,10 @@ def test_dispatcher_emits_one_send_per_spec(dispatcher, target, tc_test_case, tc
         "test_case": tc_test_case,
         "decomposed_requirements": [tc_decomposed_requirement, second_dr],
     }
-    sends = dispatcher(state)
+    sends = dispatch_coverage(state)
     assert len(sends) == 3  # 1 + 2
     for s in sends:
-        assert s.node == target
+        assert s.node == "coverage_evaluator"
         assert "test_case" in s.arg
         assert "requirement" in s.arg
         assert "decomposed_spec" in s.arg
@@ -247,10 +275,9 @@ def test_dispatcher_emits_one_send_per_spec(dispatcher, target, tc_test_case, tc
     assert sends[2].arg["decomposed_spec"].spec_id == "S-003"
 
 
-@pytest.mark.parametrize("dispatcher", [dispatch_coverage, dispatch_logical, dispatch_prereqs])
-def test_dispatcher_empty_state(dispatcher):
-    assert dispatcher({}) == []
-    assert dispatcher({"test_case": None, "decomposed_requirements": []}) == []
+def test_dispatch_coverage_empty_state():
+    assert dispatch_coverage({}) == []
+    assert dispatch_coverage({"test_case": None, "decomposed_requirements": []}) == []
 
 
 # ---------------------------------------------------------------------------
@@ -308,8 +335,8 @@ async def test_aggregator_returns_assessment(tc_test_case, tc_requirement, tc_de
         "decomposed_requirements": [tc_decomposed_requirement],
         "review_objectives": objectives,
         "coverage_analysis": [SpecAnalysis(spec_id="S-001", exists=True, assessment="ok")],
-        "logical_structure_analysis": [SpecAnalysis(spec_id="S-001", exists=True, assessment="ok")],
-        "prereqs_analysis": [SpecAnalysis(spec_id="S-001", exists=True, assessment="ok")],
+        "logical_structure_analysis": OverallAnalysis(exists=True, assessment="Steps 1-2 set up, Step 3 stimulates, Step 4 verifies — clean flow."),
+        "prereqs_analysis": OverallAnalysis(exists=True, assessment="Setup names sensor, user role, and calibration state."),
     }
     result = await node(state)
     assert "aggregated_assessment" in result

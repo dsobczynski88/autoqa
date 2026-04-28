@@ -4,6 +4,7 @@ from .core import (
     DecomposedRequirement,
     DecomposedSpec,
     EvaluatedReviewObjective,
+    OverallAnalysis,
     Requirement,
     ReviewObjective,
     SpecAnalysis,
@@ -14,13 +15,11 @@ from .core import (
 )
 from .nodes import (
     AggregatorNode,
+    OverallLogicalNode,
+    OverallPrereqsNode,
     SingleSpecCoverageNode,
-    SingleSpecLogicalNode,
-    SingleSpecPrereqsNode,
     TCDecomposerNode,
     dispatch_coverage,
-    dispatch_logical,
-    dispatch_prereqs,
     load_default_review_objectives,
     make_aggregator_node,
     make_coverage_single_node,
@@ -40,13 +39,14 @@ __all__ = [
     "ReviewObjective",
     "EvaluatedReviewObjective",
     "SpecAnalysis",
+    "OverallAnalysis",
     "TestCaseAssessment",
     "TCReviewState",
     # nodes
     "TCDecomposerNode",
     "SingleSpecCoverageNode",
-    "SingleSpecLogicalNode",
-    "SingleSpecPrereqsNode",
+    "OverallLogicalNode",
+    "OverallPrereqsNode",
     "AggregatorNode",
     # factories
     "make_tc_decomposer_node",
@@ -54,10 +54,8 @@ __all__ = [
     "make_logical_single_node",
     "make_prereqs_single_node",
     "make_aggregator_node",
-    # dispatchers
+    # dispatcher (only coverage fans out per spec from v3 onwards)
     "dispatch_coverage",
-    "dispatch_logical",
-    "dispatch_prereqs",
     # helpers
     "load_default_review_objectives",
     # runnable

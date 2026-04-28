@@ -47,6 +47,7 @@ __all__ = [
     "ReviewObjective",
     "EvaluatedReviewObjective",
     "SpecAnalysis",
+    "OverallAnalysis",
     "TestCaseAssessment",
     "TCReviewState",
 ]
@@ -96,10 +97,22 @@ class EvaluatedReviewObjective(ReviewObjective):
 
 
 class SpecAnalysis(BaseModel):
-    """Per-spec verdict emitted by each axis evaluator (coverage / logical / prereqs)."""
+    """Per-spec verdict emitted by the coverage axis evaluator."""
     spec_id: str = Field(..., description="The spec_id from the DecomposedSpec.")
     exists: bool = Field(..., description="True if the axis criterion is met for this spec.")
     assessment: str = Field(..., description="Rationale for the verdict.")
+
+
+class OverallAnalysis(BaseModel):
+    """Test-case-level verdict for an axis that does NOT iterate over decomposed specs.
+    Used by the logical-structure and prerequisites axes from prompt v3 onwards —
+    those axes are properties of the test case as a whole, not of individual specs."""
+    exists: bool = Field(
+        ..., description="True iff the test case meets the axis criterion at the test-case level."
+    )
+    assessment: str = Field(
+        ..., description="Concise rationale (1-2 sentences) citing specific test-case elements."
+    )
 
 
 class TestCaseAssessment(BaseModel):
@@ -148,7 +161,10 @@ class TCReviewState(TypedDict, total=False):
     requirements: List[Requirement]
     review_objectives: List[ReviewObjective]
     decomposed_requirements: Optional[List[DecomposedRequirement]]
+    # Coverage stays per-spec — Send fan-out emits one SpecAnalysis per spec.
     coverage_analysis: Annotated[List[SpecAnalysis], operator.add]
-    logical_structure_analysis: Annotated[List[SpecAnalysis], operator.add]
-    prereqs_analysis: Annotated[List[SpecAnalysis], operator.add]
+    # Logical-structure and prereqs are TEST-CASE-LEVEL from v3 onwards. Each is
+    # produced by exactly one node call (no Send fan-out), so no operator.add reducer.
+    logical_structure_analysis: Optional[OverallAnalysis]
+    prereqs_analysis: Optional[OverallAnalysis]
     aggregated_assessment: Optional[TestCaseAssessment]

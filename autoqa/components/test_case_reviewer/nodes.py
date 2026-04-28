@@ -1,13 +1,13 @@
 """
 Node implementations for the single-test-case reviewer.
 
-Pipeline shape:
+Pipeline shape (v3 prompts onwards — only the coverage axis fans out per spec):
 
     decomposer (sequential loop over requirements)
         -> coverage_router (sync no-op)
-            -> dispatch_coverage    -> coverage_evaluator   x N
-            -> dispatch_logical     -> logical_evaluator    x N
-            -> dispatch_prereqs     -> prereqs_evaluator    x N
+            -> dispatch_coverage    -> coverage_evaluator   x N (per spec)
+            -> (direct edge)        -> logical_evaluator    x 1 (test-case-level)
+            -> (direct edge)        -> prereqs_evaluator    x 1 (test-case-level)
                 -> aggregator
 """
 import json
@@ -30,6 +30,7 @@ from autoqa.utils import render_prompt
 
 from .core import (
     DecomposedRequirement,
+    OverallAnalysis,
     ReviewObjective,
     SpecAnalysis,
     TCReviewState,
@@ -170,15 +171,8 @@ class _SingleSpecAxisNode(BaseLLMNode):
 
 
 class SingleSpecCoverageNode(_SingleSpecAxisNode):
+    """Coverage axis evaluator — fan-out target, one Send per decomposed spec."""
     OUTPUT_KEY = "coverage_analysis"
-
-
-class SingleSpecLogicalNode(_SingleSpecAxisNode):
-    OUTPUT_KEY = "logical_structure_analysis"
-
-
-class SingleSpecPrereqsNode(_SingleSpecAxisNode):
-    OUTPUT_KEY = "prereqs_analysis"
 
 
 def _make_axis_node(
@@ -198,11 +192,62 @@ def _make_axis_node(
     )
 
 
+# ---------------------------------------------------------------------------
+# Test-case-level axis evaluators (single LLM call each, no Send fan-out).
+# Logical-structure and prereqs are properties of the test case as a whole;
+# they do not iterate over decomposed specs from v3 onwards.
+# ---------------------------------------------------------------------------
+
+
+class OverallLogicalNode(StandardLLMNode):
+    """Logical-structure axis — single test-case-level LLM call. No spec iteration."""
+
+    def _validate_state(self, state: TCReviewState) -> bool:
+        return all([
+            state.get("test_case") is not None,
+            state.get("requirements") is not None,
+        ])
+
+    def _build_payload(self, state: TCReviewState) -> dict:
+        return {
+            "test_case": state["test_case"].model_dump(),
+            "requirements": [r.model_dump() for r in state["requirements"]],
+        }
+
+    def _format_response(self, parsed_result: Optional[OverallAnalysis]) -> dict:
+        return {"logical_structure_analysis": parsed_result}
+
+    def _get_skip_response(self) -> dict:
+        return {"logical_structure_analysis": None}
+
+
+class OverallPrereqsNode(StandardLLMNode):
+    """Prereqs axis — single test-case-level LLM call. No spec iteration."""
+
+    def _validate_state(self, state: TCReviewState) -> bool:
+        return all([
+            state.get("test_case") is not None,
+            state.get("requirements") is not None,
+        ])
+
+    def _build_payload(self, state: TCReviewState) -> dict:
+        return {
+            "test_case": state["test_case"].model_dump(),
+            "requirements": [r.model_dump() for r in state["requirements"]],
+        }
+
+    def _format_response(self, parsed_result: Optional[OverallAnalysis]) -> dict:
+        return {"prereqs_analysis": parsed_result}
+
+    def _get_skip_response(self) -> dict:
+        return {"prereqs_analysis": None}
+
+
 def make_coverage_single_node(
     client: RateLimitOpenAIClient,
     model: str,
     model_kwargs: dict,
-    prompt_template: str = "single-test-coverage-eval-v2.jinja2",
+    prompt_template: str = "single-test-coverage-eval-v3.jinja2",
     **template_vars,
 ) -> SingleSpecCoverageNode:
     return _make_axis_node(
@@ -214,11 +259,17 @@ def make_logical_single_node(
     client: RateLimitOpenAIClient,
     model: str,
     model_kwargs: dict,
-    prompt_template: str = "single-test-logical-steps-v2.jinja2",
+    prompt_template: str = "single-test-logical-steps-v3.jinja2",
     **template_vars,
-) -> SingleSpecLogicalNode:
-    return _make_axis_node(
-        SingleSpecLogicalNode, client, model, model_kwargs, prompt_template, **template_vars
+) -> OverallLogicalNode:
+    """Build the test-case-level logical-structure node (single LLM call, no Send)."""
+    system_prompt = render_prompt(prompt_template, **template_vars)
+    return OverallLogicalNode(
+        client=client,
+        model=model,
+        response_model=OverallAnalysis,
+        system_prompt=system_prompt,
+        model_kwargs=model_kwargs,
     )
 
 
@@ -226,32 +277,37 @@ def make_prereqs_single_node(
     client: RateLimitOpenAIClient,
     model: str,
     model_kwargs: dict,
-    prompt_template: str = "single-test-prereqs-v2.jinja2",
+    prompt_template: str = "single-test-prereqs-v3.jinja2",
     **template_vars,
-) -> SingleSpecPrereqsNode:
-    return _make_axis_node(
-        SingleSpecPrereqsNode, client, model, model_kwargs, prompt_template, **template_vars
+) -> OverallPrereqsNode:
+    """Build the test-case-level prereqs node (single LLM call, no Send)."""
+    system_prompt = render_prompt(prompt_template, **template_vars)
+    return OverallPrereqsNode(
+        client=client,
+        model=model,
+        response_model=OverallAnalysis,
+        system_prompt=system_prompt,
+        model_kwargs=model_kwargs,
     )
 
 
 # ---------------------------------------------------------------------------
-# Send dispatchers
+# Send dispatcher (coverage axis only — the only axis that fans out per spec)
 # ---------------------------------------------------------------------------
 
 
-def _build_axis_sends(state: TCReviewState, target_node: str) -> List[Send]:
-    """
-    Emit one Send per (decomposed_requirement, decomposed_spec) pair, carrying
-    the parent requirement so axis evaluators preserve traceability.
-    """
+def dispatch_coverage(state: TCReviewState) -> List[Send]:
+    """Emit one Send per (decomposed_requirement, decomposed_spec) pair to the
+    coverage_evaluator. The logical and prereqs axes do NOT fan out per spec
+    from v3 onwards — they take the full state via direct edges."""
     test_case = state.get("test_case")
     decomposed_reqs = state.get("decomposed_requirements")
     if not test_case or not decomposed_reqs:
-        logger.warning("dispatch -> %s: incomplete state, skipping fan-out", target_node)
+        logger.warning("dispatch_coverage: incomplete state, skipping fan-out")
         return []
 
     return [
-        Send(target_node, {
+        Send("coverage_evaluator", {
             "test_case": test_case,
             "requirement": dr.requirement,
             "decomposed_spec": spec,
@@ -259,18 +315,6 @@ def _build_axis_sends(state: TCReviewState, target_node: str) -> List[Send]:
         for dr in decomposed_reqs
         for spec in dr.decomposed_specifications
     ]
-
-
-def dispatch_coverage(state: TCReviewState) -> List[Send]:
-    return _build_axis_sends(state, "coverage_evaluator")
-
-
-def dispatch_logical(state: TCReviewState) -> List[Send]:
-    return _build_axis_sends(state, "logical_evaluator")
-
-
-def dispatch_prereqs(state: TCReviewState) -> List[Send]:
-    return _build_axis_sends(state, "prereqs_evaluator")
 
 
 # ---------------------------------------------------------------------------
@@ -290,13 +334,15 @@ class AggregatorNode(StandardLLMNode):
         ])
 
     def _build_payload(self, state: TCReviewState) -> dict:
+        logical = state.get("logical_structure_analysis")
+        prereqs = state.get("prereqs_analysis")
         return {
             "test_case": state["test_case"].model_dump(),
             "requirements": [r.model_dump() for r in state["requirements"]],
             "decomposed_requirements": [d.model_dump() for d in state["decomposed_requirements"]],
             "coverage_analysis": [a.model_dump() for a in state.get("coverage_analysis", [])],
-            "logical_structure_analysis": [a.model_dump() for a in state.get("logical_structure_analysis", [])],
-            "prereqs_analysis": [a.model_dump() for a in state.get("prereqs_analysis", [])],
+            "logical_structure_analysis": logical.model_dump() if logical is not None else None,
+            "prereqs_analysis": prereqs.model_dump() if prereqs is not None else None,
             "review_objectives": [o.model_dump() for o in state["review_objectives"]],
         }
 
@@ -311,7 +357,7 @@ def make_aggregator_node(
     client: RateLimitOpenAIClient,
     model: str,
     model_kwargs: dict,
-    prompt_template: str = "single-test-aggregator-v3.jinja2",
+    prompt_template: str = "single-test-aggregator-v4.jinja2",
     **template_vars,
 ) -> AggregatorNode:
     system_prompt = render_prompt(prompt_template, **template_vars)

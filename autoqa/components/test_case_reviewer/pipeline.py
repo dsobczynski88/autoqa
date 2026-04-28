@@ -22,8 +22,6 @@ from autoqa.utils import save_graph_png
 from .core import TCReviewState
 from .nodes import (
     dispatch_coverage,
-    dispatch_logical,
-    dispatch_prereqs,
     make_aggregator_node,
     make_coverage_single_node,
     make_logical_single_node,
@@ -46,7 +44,7 @@ class TCReviewerRunnable:
         ┌──────────────────────────────────────────┐
         │ COVERAGE_ROUTER (sync no-op)              │
         └──────────────────────────────────────────┘
-          ↓ 3× add_conditional_edges → Send × N each
+          ↓ coverage Send × N (per spec); logical & prereqs direct edges (test-level)
         ┌─────────────┬─────────────┬─────────────┐
         │ coverage_   │ logical_    │ prereqs_    │
         │ evaluator×N │ evaluator×N │ evaluator×N │
@@ -104,9 +102,11 @@ class TCReviewerRunnable:
         sg.add_edge(START, "decomposer")
         sg.add_edge("decomposer", "coverage_router")
 
+        # Coverage axis fans out per spec via Send. Logical and prereqs are
+        # test-case-level (single LLM call each) — direct edges, no Send.
         sg.add_conditional_edges("coverage_router", dispatch_coverage, ["coverage_evaluator"])
-        sg.add_conditional_edges("coverage_router", dispatch_logical, ["logical_evaluator"])
-        sg.add_conditional_edges("coverage_router", dispatch_prereqs, ["prereqs_evaluator"])
+        sg.add_edge("coverage_router", "logical_evaluator")
+        sg.add_edge("coverage_router", "prereqs_evaluator")
 
         sg.add_edge("coverage_evaluator", "aggregator")
         sg.add_edge("logical_evaluator", "aggregator")

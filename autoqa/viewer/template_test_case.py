@@ -206,7 +206,6 @@ function renderLeft() {
     <div class="verdict-row">
       <span>Overall verdict:</span>
       <span class="verdict-badge verdict-${overallClass}">${escapeHTML(overallVerdict)}</span>
-      <span class="link-like" onclick="openChecklist()">Checklist drilldown →</span>
       <span class="link-like" onclick="openAxes()">Spec axes →</span>
     </div>
     <table class="findings">
@@ -241,50 +240,6 @@ function openModal(bodyHTML) {
 }
 function closeModal() { document.getElementById("modal").classList.remove("open"); }
 
-function openChecklist() {
-  const rec = RECORDS[idx];
-  const ag = rec.aggregated_assessment ?? {};
-  const checklist = ag.evaluated_checklist ?? [];
-  const overallVerdict = ag.overall_verdict ?? "?";
-  const overallPartial = (overallVerdict === "Yes") && checklist.some(o => o.partial);
-  const overallClass = overallPartial ? "Yellow" : overallVerdict;
-  const noCount = checklist.filter(o => o.verdict === "No").length;
-  const partialCount = checklist.filter(o => o.verdict === "Yes" && o.partial).length;
-
-  const rows = checklist.map(o => {
-    const chipClass = (o.verdict === "Yes" && o.partial) ? "Yellow" : o.verdict;
-    const partialTag = (o.verdict === "Yes" && o.partial)
-      ? `<span class="chip chip-Yellow" style="font-size:11px;margin-left:6px">partial</span>`
-      : "";
-    return `<tr>
-      <td><strong>${escapeHTML(o.id)}</strong><div class="obj-desc">${escapeHTML(o.description)}</div></td>
-      <td><span class="chip chip-${chipClass}">${escapeHTML(o.verdict ?? "?")}</span>${partialTag}</td>
-      <td>${escapeHTML(o.assessment ?? "")}</td>
-    </tr>`;
-  }).join("");
-
-  const rollupExplain = noCount > 0
-    ? `${noCount} objective(s) failed → <code>overall_verdict = "No"</code>.`
-    : `All objectives Yes${partialCount ? ` (with ${partialCount} partial)` : ""} → <code>overall_verdict = "Yes"</code>.`;
-
-  openModal(`
-    <h3>Checklist drilldown — what drives <code>overall_verdict</code></h3>
-    <p style="font-size:13px;color:var(--mute);margin-top:0">
-      <code>overall_verdict</code> is a deterministic AND across the 5 review objectives:
-      Yes iff every row's verdict is Yes; any single No flips it. Partial-Yes still passes.
-    </p>
-    <table class="findings">
-      <thead><tr><th>Objective</th><th>Verdict</th><th>Assessment</th></tr></thead>
-      <tbody>${rows || "<tr><td colspan=\"3\"><em>(no checklist populated)</em></td></tr>"}</tbody>
-    </table>
-    <div class="verdict-row" style="margin-top:14px">
-      <span>Result:</span>
-      <span class="verdict-badge verdict-${overallClass}">${escapeHTML(overallVerdict)}</span>
-      <span style="font-size:13px;color:var(--mute)">${rollupExplain}</span>
-    </div>
-  `);
-}
-
 function openAxes() {
   const rec = RECORDS[idx];
   // Flatten specs across all decomposed_requirements, attaching parent req_id.
@@ -297,8 +252,6 @@ function openAxes() {
     }
   }
   const cov = Object.fromEntries((rec.coverage_analysis ?? []).map(a => [a.spec_id, a]));
-  const log = Object.fromEntries((rec.logical_structure_analysis ?? []).map(a => [a.spec_id, a]));
-  const pre = Object.fromEntries((rec.prereqs_analysis ?? []).map(a => [a.spec_id, a]));
 
   const cellFor = (a) => {
     if (!a) return `<div class="axis-cell"><em>(no analysis)</em></div>`;
@@ -314,13 +267,11 @@ function openAxes() {
       <td><strong>${escapeHTML(spec.spec_id)}</strong><div style="font-size:12px;color:var(--mute);margin-top:2px">${escapeHTML(spec.description)}</div></td>
       <td>${escapeHTML(spec.acceptance_criteria)}</td>
       <td>${cellFor(cov[spec.spec_id])}</td>
-      <td>${cellFor(log[spec.spec_id])}</td>
-      <td>${cellFor(pre[spec.spec_id])}</td>
     </tr>
   `).join("");
 
   openModal(`
-    <h3>Decomposed specifications & 3-axis analysis</h3>
+    <h3>Decomposed specifications & coverage</h3>
     <table class="detail">
       <thead>
         <tr>
@@ -328,11 +279,9 @@ function openAxes() {
           <th>Spec ID</th>
           <th>Acceptance criteria</th>
           <th>Coverage</th>
-          <th>Logical structure</th>
-          <th>Prerequisites</th>
         </tr>
       </thead>
-      <tbody>${rows || "<tr><td colspan=\"6\"><em>(no decomposed specs)</em></td></tr>"}</tbody>
+      <tbody>${rows || "<tr><td colspan=\"4\"><em>(no decomposed specs)</em></td></tr>"}</tbody>
     </table>
   `);
 }
