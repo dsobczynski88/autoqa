@@ -10,7 +10,12 @@ class PromptConfig(BaseModel):
     summarizer: str = "summarizer-v2.jinja2"
     coverage: str = "coverage_evaluator-v5.jinja2"
     synthesizer: str = "synthesizer-v6.jinja2"
-    hazard_synthesizer: str = "hazard_synthesizer-v1.jinja2"
+    hazard_h1: str = "hazard_h1_evaluator-v1.jinja2"
+    hazard_h2: str = "hazard_h2_evaluator-v1.jinja2"
+    hazard_h3: str = "hazard_h3_evaluator-v1.jinja2"
+    hazard_h4: str = "hazard_h4_evaluator-v1.jinja2"
+    hazard_h5: str = "hazard_h5_evaluator-v1.jinja2"
+    hazard_final: str = "hazard_final_assessor-v1.jinja2"
 
 
 class Settings(BaseSettings):
