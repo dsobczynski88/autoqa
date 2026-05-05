@@ -15,8 +15,8 @@ from openai.types.chat import ChatCompletion
 nest_asyncio.apply()
 
 # Set event loop
-loop = asyncio.ProactorEventLoop()
-asyncio.set_event_loop(loop)
+loop =  asyncio.SelectorEventLoop() # asyncio.ProactorEventLoop()
+asyncio.set_event_loop(loop) 
 
 # Set generic data type "T"
 T = TypeVar("T")

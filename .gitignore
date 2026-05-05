@@ -2,6 +2,11 @@
 output/
 CLAUDE.md
 
+
+# Config files
+config.yaml
+
+
 # Output files
 *.xlsx
 

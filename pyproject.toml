@@ -26,6 +26,8 @@ dependencies = [
   "fastapi[standard]>=0.115",
   "pydantic-settings>=2.0",
   "pyyaml>=6.0",
+  "truststore>=0.10.4",
+  "pyjama-fastapi",
 ]
 
 [dependency-groups]
@@ -41,6 +43,9 @@ markers = [
 ]
 testpaths = ["tests"]
 python_classes = []
+
+[tool.uv.sources]
+pyjama-fastapi = { git = "https://github.com/dsobczynski88/pyjama-fastapi.git", branch = "main" }
 
 # Declaring a build system allows uv to install your project editably during sync.
 # This does not publish anything by itself; it just makes local imports work cleanly.
